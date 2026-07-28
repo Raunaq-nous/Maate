@@ -1,0 +1,145 @@
+# ============================================
+# MAATE — Local Development Stack
+# Usage: docker compose up -d
+# ============================================
+
+name: maate-dev
+
+services:
+  # ─── PostgreSQL ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: maate-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: maate_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ───────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: maate-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO (S3-compatible storage) ───────────
+  minio:
+    image: minio/minio:latest
+    container_name: maate-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO Setup (create default bucket) ────
+  minio-setup:
+    image: minio/mc:latest
+    container_name: maate-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set myminio http://minio:9000 minioadmin minioadmin123;
+        mc mb myminio/maate-documents --ignore-existing;
+        mc anonymous set download myminio/maate-documents;
+        exit 0;
+      "
+
+  # ─── OCR Service (Python) ───────────────────
+  ocr-service:
+    build:
+      context: ./services/ocr-service
+      dockerfile: Dockerfile
+    container_name: maate-ocr
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - REDIS_URL=redis://redis:6379/1
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin123
+      - S3_BUCKET=maate-documents
+    volumes:
+      - ./services/ocr-service/app:/app/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # ─── AI Service (Python) ────────────────────
+  ai-service:
+    build:
+      context: ./services/ai-service
+      dockerfile: Dockerfile
+    container_name: maate-ai
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - REDIS_URL=redis://redis:6379/2
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/maate_dev
+    volumes:
+      - ./services/ai-service/app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── BullMQ Dashboard ──────────────────────
+  bull-board:
+    image: deadly0/bull-board:latest
+    container_name: maate-bull-board
+    restart: unless-stopped
+    ports:
+      - "3200:3000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local

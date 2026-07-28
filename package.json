@@ -1,0 +1,61 @@
+{
+  "name": "maate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Maate — AI-Powered Personal Health Management Platform",
+  "author": "Maate Health <engineering@maate.health>",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:api": "turbo run dev --filter=@maate/api",
+    "dev:mobile": "turbo run dev --filter=@maate/mobile",
+    "dev:web": "turbo run dev --filter=@maate/doctor-portal",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "test": "turbo run test",
+    "test:ci": "turbo run test:ci",
+    "test:e2e": "turbo run test:e2e",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:generate": "turbo run db:generate --filter=@maate/database",
+    "db:migrate": "turbo run db:migrate --filter=@maate/database",
+    "db:seed": "turbo run db:seed --filter=@maate/database",
+    "db:studio": "turbo run db:studio --filter=@maate/database",
+    "db:reset": "turbo run db:reset --filter=@maate/database",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose -f docker-compose.yml -f docker-compose.prod.yml build",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0",
+    "prettier": "^3.3.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  }
+}

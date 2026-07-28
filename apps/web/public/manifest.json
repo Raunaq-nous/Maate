@@ -1,0 +1,35 @@
+{
+  "name": "Maate | AI Healthcare Assistant",
+  "short_name": "Maate",
+  "description": "Your family's longitudinal health vault and AI clinical companion.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Health Records",
+      "url": "/records",
+      "icons": [{ "src": "/icons/records.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "AI Chat",
+      "url": "/chat",
+      "icons": [{ "src": "/icons/chat.png", "sizes": "192x192" }]
+    }
+  ]
+}

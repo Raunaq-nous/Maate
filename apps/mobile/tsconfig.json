@@ -1,0 +1,14 @@
+{
+  "extends": "@maate/tsconfig/react-native.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ]
+}

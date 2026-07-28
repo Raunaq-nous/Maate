@@ -1,0 +1,1168 @@
+// ============================================
+// MAATE — Prisma Schema (Part 1/3)
+// Generator, datasource, enums, auth models
+// HIPAA-ready · FHIR-compatible · Soft deletes
+// ============================================
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/client"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENUMS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum UserRole {
+  PATIENT
+  CAREGIVER
+  FAMILY_ADMIN
+  DOCTOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AuthProvider {
+  EMAIL
+  PHONE
+  GOOGLE
+  APPLE
+}
+
+enum DocumentType {
+  LAB_REPORT
+  PRESCRIPTION
+  DISCHARGE_SUMMARY
+  IMAGING
+  INSURANCE
+  VACCINATION
+  DOCTOR_NOTE
+  REFERRAL
+  CONSENT_FORM
+  OTHER
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ReminderFrequency {
+  ONCE_DAILY
+  TWICE_DAILY
+  THRICE_DAILY
+  FOUR_TIMES
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum MealRelation {
+  BEFORE_MEAL
+  AFTER_MEAL
+  WITH_MEAL
+  EMPTY_STOMACH
+  ANY
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  SNACK
+  DINNER
+}
+
+enum ReminderType {
+  MEDICINE
+  WATER
+  MEAL
+  APPOINTMENT
+  VITAL_CHECK
+}
+
+enum ReminderResponse {
+  TAKEN
+  SKIPPED
+  SNOOZED
+  MISSED
+}
+
+enum HealthStatus {
+  NORMAL
+  LOW
+  HIGH
+  CRITICAL
+  BORDERLINE
+}
+
+enum FamilyRole {
+  ADMIN
+  CAREGIVER
+  MEMBER
+  DEPENDENT
+}
+
+enum NotificationType {
+  REMINDER
+  ALERT
+  INFO
+  ESCALATION
+  SYSTEM
+  ACHIEVEMENT
+}
+
+enum NotificationChannel {
+  PUSH
+  SMS
+  IN_APP
+  EMAIL
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum VitalType {
+  BLOOD_PRESSURE
+  HEART_RATE
+  TEMPERATURE
+  BLOOD_OXYGEN
+  BLOOD_SUGAR
+  WEIGHT
+  HEIGHT
+  BMI
+  RESPIRATORY_RATE
+  STEPS
+  SLEEP_HOURS
+}
+
+enum Severity {
+  MILD
+  MODERATE
+  SEVERE
+  CRITICAL
+}
+
+enum ConditionStatus {
+  ACTIVE
+  REMISSION
+  RESOLVED
+  RECURRING
+}
+
+enum TimelineEventType {
+  DOCUMENT_UPLOADED
+  LAB_RESULT
+  PRESCRIPTION_ADDED
+  MEDICATION_STARTED
+  MEDICATION_STOPPED
+  VITAL_RECORDED
+  SYMPTOM_REPORTED
+  CONDITION_DIAGNOSED
+  CONDITION_RESOLVED
+  APPOINTMENT
+  DOCTOR_VISIT
+  HOSPITALIZATION
+  VACCINATION
+  SURGERY
+  AI_INSIGHT
+  MILESTONE
+}
+
+enum MedicationStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  DISCONTINUED
+  EXPIRED
+}
+
+enum RelationshipType {
+  SELF
+  SPOUSE
+  PARENT
+  CHILD
+  SIBLING
+  GRANDPARENT
+  OTHER
+}
+
+enum AccessLevel {
+  VIEW
+  EDIT
+  FULL
+  EMERGENCY
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AUTH MODELS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  phone           String?   @unique @db.VarChar(15)
+  email           String?   @unique @db.VarChar(255)
+  passwordHash    String?   @map("password_hash") @db.VarChar(255)
+  fullName        String    @map("full_name") @db.VarChar(100)
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
+  gender          Gender?
+  bloodGroup      String?   @map("blood_group") @db.VarChar(5)
+  avatarUrl       String?   @map("avatar_url")
+  locale          String    @default("en-IN") @db.VarChar(10)
+  timezone        String    @default("Asia/Kolkata") @db.VarChar(50)
+  role            UserRole  @default(PATIENT)
+  heightCm        Float?    @map("height_cm")
+  weightKg        Float?    @map("weight_kg")
+  emergencyContact String?  @map("emergency_contact") @db.VarChar(15)
+  allergiesJson   Json?     @map("allergies_json")
+  onboardingDone  Boolean   @default(false) @map("onboarding_done")
+  isActive        Boolean   @default(true) @map("is_active")
+  isEmailVerified Boolean   @default(false) @map("is_email_verified")
+  isPhoneVerified Boolean   @default(false) @map("is_phone_verified")
+  fcmToken        String?   @map("fcm_token")
+  apnsToken       String?   @map("apns_token")
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz
+  loginCount      Int       @default(0) @map("login_count")
+  failedAttempts  Int       @default(0) @map("failed_attempts")
+  lockedUntil     DateTime? @map("locked_until") @db.Timestamptz
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Auth relations
+  oauthAccounts      OAuthAccount[]
+  refreshTokens      RefreshToken[]
+  sessions           UserSession[]
+  passwordResets      PasswordReset[]
+  // Domain relations
+  documents          Document[]         @relation("UserDocuments")
+  uploadedDocuments  Document[]         @relation("UploadedByUser")
+  medications        Medication[]
+  prescriptions      Prescription[]     @relation("UserPrescriptions")
+  prescribedBy       Prescription[]     @relation("PrescribedByDoctor")
+  medicineReminders  MedicineReminder[] @relation("UserMedicineReminders")
+  createdReminders   MedicineReminder[] @relation("CreatedByUser")
+  waterReminder      WaterReminder?
+  mealReminders      MealReminder[]
+  reminderLogs       ReminderLog[]      @relation("UserReminderLogs")
+  escalationLogs     ReminderLog[]      @relation("EscalatedToUser")
+  healthRecords      HealthRecord[]
+  vitalSigns         VitalSign[]
+  symptoms           SymptomEntry[]
+  chronicConditions  ChronicCondition[]
+  timelineEvents     TimelineEvent[]
+  doctorNotes        DoctorNote[]       @relation("PatientNotes")
+  authoredNotes      DoctorNote[]       @relation("AuthoredNotes")
+  familyMemberships  FamilyGroupMember[]
+  createdGroups      FamilyGroup[]
+  doctorShares       DoctorShare[]
+  chatSessions       ChatSession[]
+  notifications      Notification[]
+  // Infrastructure relations
+  devices            UserDevice[]
+  consents           DataConsent[]
+  mfa                UserMfa?
+  // Family profiles
+  familyMembers      FamilyMember[] @relation("UserFamilyMembers")
+  permissions        AccessPermission[] @relation("UserPermissions")
+  grantedPermissions AccessPermission[] @relation("PermissionsGrantedBy")
+
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model OAuthAccount {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @map("user_id") @db.Uuid
+  provider      AuthProvider
+  providerId    String       @map("provider_id") @db.VarChar(255)
+  email         String?      @db.VarChar(255)
+  displayName   String?      @map("display_name") @db.VarChar(100)
+  avatarUrl     String?      @map("avatar_url")
+  accessToken   String?      @map("access_token")
+  refreshToken  String?      @map("refresh_token")
+  tokenExpiry   DateTime?    @map("token_expiry") @db.Timestamptz
+  rawProfile    Json?        @map("raw_profile")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  token       String   @unique @db.VarChar(500)
+  family      String   @default(uuid()) @db.VarChar(36)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz
+  isRevoked   Boolean  @default(false) @map("is_revoked")
+  userAgent   String?  @map("user_agent") @db.VarChar(500)
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([family])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model UserSession {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  deviceName    String?  @map("device_name") @db.VarChar(100)
+  deviceOS      String?  @map("device_os") @db.VarChar(30)
+  ipAddress     String?  @map("ip_address") @db.VarChar(45)
+  userAgent     String?  @map("user_agent") @db.VarChar(500)
+  lastActiveAt  DateTime @default(now()) @map("last_active_at") @db.Timestamptz
+  isActive      Boolean  @default(true) @map("is_active")
+  biometricKey  String?  @map("biometric_key") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@map("user_sessions")
+}
+
+model PasswordReset {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  token      String    @unique @db.VarChar(128)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz
+  usedAt     DateTime? @map("used_at") @db.Timestamptz
+  ipAddress  String?   @map("ip_address") @db.VarChar(45)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("password_resets")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CLINICAL DOMAIN — Documents, OCR, AI
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Document {
+  id                String           @id @default(uuid()) @db.Uuid
+  userId            String           @map("user_id") @db.Uuid
+  uploadedBy        String?          @map("uploaded_by") @db.Uuid
+  title             String?          @db.VarChar(255)
+  documentType      DocumentType     @map("document_type")
+  fileUrl           String           @map("file_url")
+  fileType          String?          @map("file_type") @db.VarChar(10)
+  fileSizeBytes     BigInt?          @map("file_size_bytes")
+  checksum          String?          @db.VarChar(64)
+  encryptionKeyId   String?          @map("encryption_key_id") @db.VarChar(64)
+  ocrStatus         ProcessingStatus @default(PENDING) @map("ocr_status")
+  aiSummaryStatus   ProcessingStatus @default(PENDING) @map("ai_summary_status")
+  tags              String[]         @default([])
+  documentDate      DateTime?        @map("document_date") @db.Date
+  providerName      String?          @map("provider_name") @db.VarChar(255)
+  doctorName        String?          @map("doctor_name") @db.VarChar(255)
+  fhirDocRefId      String?          @map("fhir_doc_ref_id") @db.VarChar(64)
+  isArchived        Boolean          @default(false) @map("is_archived")
+  deletedAt         DateTime?        @map("deleted_at") @db.Timestamptz
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  user          User           @relation("UserDocuments", fields: [userId], references: [id], onDelete: Cascade)
+  uploader      User?          @relation("UploadedByUser", fields: [uploadedBy], references: [id])
+  ocrResult     OcrResult?
+  aiSummary     AiSummary?
+  healthRecords HealthRecord[]
+  labReports    LabReport[]
+  imagingReports ImagingReport[]
+  prescriptions Prescription[]
+  timelineEvents TimelineEvent[]
+  chunks         DocumentChunk[]
+
+  @@index([userId, documentDate(sort: Desc)])
+  @@index([userId, documentType])
+  @@index([deletedAt])
+  @@index([fhirDocRefId])
+  @@map("documents")
+}
+
+model OcrResult {
+  id               String   @id @default(uuid()) @db.Uuid
+  documentId       String   @unique @map("document_id") @db.Uuid
+  rawText          String?
+  structuredData   Json?    @map("structured_data")
+  confidenceScore  Float?   @map("confidence_score")
+  engineUsed       String?  @map("engine_used") @db.VarChar(30)
+  engineVersion    String?  @map("engine_version") @db.VarChar(20)
+  processingTimeMs Int?     @map("processing_time_ms")
+  pageCount        Int?     @map("page_count")
+  languageDetected String?  @map("language_detected") @db.VarChar(10)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("ocr_results")
+}
+
+model AiSummary {
+  id               String   @id @default(uuid()) @db.Uuid
+  documentId       String   @unique @map("document_id") @db.Uuid
+  summaryText      String   @map("summary_text")
+  keyFindings      Json?    @map("key_findings")
+  riskFlags        Json?    @map("risk_flags")
+  recommendations  Json?
+  laypersonSummary String?  @map("layperson_summary")
+  modelUsed        String?  @map("model_used") @db.VarChar(50)
+  modelVersion     String?  @map("model_version") @db.VarChar(20)
+  promptTokens     Int?     @map("prompt_tokens")
+  completionTokens Int?     @map("completion_tokens")
+  costUsd          Float?   @map("cost_usd")
+  latencyMs        Int?     @map("latency_ms")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("ai_summaries")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LAB REPORTS & IMAGING
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model LabReport {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @map("user_id") @db.Uuid
+  documentId      String?      @map("document_id") @db.Uuid
+  reportName      String       @map("report_name") @db.VarChar(255)
+  labName         String?      @map("lab_name") @db.VarChar(255)
+  orderedBy       String?      @map("ordered_by") @db.VarChar(255)
+  collectionDate  DateTime?    @map("collection_date") @db.Date
+  reportDate      DateTime     @map("report_date") @db.Date
+  overallStatus   HealthStatus @default(NORMAL) @map("overall_status")
+  fhirDiagReportId String?     @map("fhir_diag_report_id") @db.VarChar(64)
+  notes           String?
+  deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  document     Document?      @relation(fields: [documentId], references: [id])
+  parameters   LabParameter[]
+
+  @@index([userId, reportDate(sort: Desc)])
+  @@index([fhirDiagReportId])
+  @@map("lab_reports")
+}
+
+model LabParameter {
+  id             String       @id @default(uuid()) @db.Uuid
+  labReportId    String       @map("lab_report_id") @db.Uuid
+  parameterName  String       @map("parameter_name") @db.VarChar(100)
+  value          String       @db.VarChar(50)
+  unit           String?      @db.VarChar(30)
+  referenceMin   Float?       @map("reference_min")
+  referenceMax   Float?       @map("reference_max")
+  referenceRange String?      @map("reference_range") @db.VarChar(50)
+  status         HealthStatus @default(NORMAL)
+  isAbnormal     Boolean      @default(false) @map("is_abnormal")
+  loincCode      String?      @map("loinc_code") @db.VarChar(20)
+  snomedCode     String?      @map("snomed_code") @db.VarChar(20)
+  method         String?      @db.VarChar(50)
+  notes          String?
+
+  labReport LabReport @relation(fields: [labReportId], references: [id], onDelete: Cascade)
+
+  @@index([labReportId])
+  @@index([loincCode])
+  @@map("lab_parameters")
+}
+
+model ImagingReport {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  documentId      String?   @map("document_id") @db.Uuid
+  modality        String    @db.VarChar(30)
+  bodyPart        String    @map("body_part") @db.VarChar(100)
+  indication      String?   @db.VarChar(500)
+  findings        String?
+  impression      String?
+  radiologistName String?   @map("radiologist_name") @db.VarChar(255)
+  facilityName    String?   @map("facility_name") @db.VarChar(255)
+  studyDate       DateTime  @map("study_date") @db.Date
+  dicomStudyUid   String?   @map("dicom_study_uid") @db.VarChar(128)
+  fhirImagStudyId String?   @map("fhir_imag_study_id") @db.VarChar(64)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@index([userId, studyDate(sort: Desc)])
+  @@index([dicomStudyUid])
+  @@map("imaging_reports")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MEDICATIONS & PRESCRIPTIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Medication {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  prescriptionId  String?          @map("prescription_id") @db.Uuid
+  name            String           @db.VarChar(255)
+  genericName     String?          @map("generic_name") @db.VarChar(255)
+  brandName       String?          @map("brand_name") @db.VarChar(255)
+  dosage          String           @db.VarChar(100)
+  dosageUnit      String?          @map("dosage_unit") @db.VarChar(20)
+  form            String?          @db.VarChar(30)
+  route           String?          @db.VarChar(30)
+  frequency       ReminderFrequency
+  timesOfDay      String[]         @map("times_of_day")
+  mealRelation    MealRelation     @default(ANY) @map("meal_relation")
+  startDate       DateTime         @map("start_date") @db.Date
+  endDate         DateTime?        @map("end_date") @db.Date
+  status          MedicationStatus @default(ACTIVE)
+  instructions    String?
+  sideEffects     String[]         @map("side_effects") @default([])
+  rxcui           String?          @db.VarChar(20)
+  ndcCode         String?          @map("ndc_code") @db.VarChar(20)
+  snomedCode      String?          @map("snomed_code") @db.VarChar(20)
+  refillsLeft     Int?             @map("refills_left")
+  pharmacy        String?          @db.VarChar(255)
+  deletedAt       DateTime?        @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prescription Prescription? @relation(fields: [prescriptionId], references: [id])
+  interactions MedicationInteraction[] @relation("MedicationA")
+  interactedBy MedicationInteraction[] @relation("MedicationB")
+
+  @@index([userId, status])
+  @@index([rxcui])
+  @@index([deletedAt])
+  @@map("medications")
+}
+
+model MedicationInteraction {
+  id              String   @id @default(uuid()) @db.Uuid
+  medicationAId   String   @map("medication_a_id") @db.Uuid
+  medicationBId   String   @map("medication_b_id") @db.Uuid
+  severity        Severity
+  description     String
+  recommendation  String?
+  source          String?  @db.VarChar(100)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  medicationA Medication @relation("MedicationA", fields: [medicationAId], references: [id], onDelete: Cascade)
+  medicationB Medication @relation("MedicationB", fields: [medicationBId], references: [id], onDelete: Cascade)
+
+  @@unique([medicationAId, medicationBId])
+  @@map("medication_interactions")
+}
+
+model Prescription {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  documentId      String?   @map("document_id") @db.Uuid
+  prescribedById  String?   @map("prescribed_by_id") @db.Uuid
+  doctorName      String    @map("doctor_name") @db.VarChar(255)
+  doctorLicense   String?   @map("doctor_license") @db.VarChar(50)
+  clinicName      String?   @map("clinic_name") @db.VarChar(255)
+  diagnosis       String?   @db.VarChar(500)
+  icdCodes        String[]  @map("icd_codes") @default([])
+  prescriptionDate DateTime @map("prescription_date") @db.Date
+  validUntil      DateTime? @map("valid_until") @db.Date
+  followUpDate    DateTime? @map("follow_up_date") @db.Date
+  notes           String?
+  isVerified      Boolean   @default(false) @map("is_verified")
+  verifiedAt      DateTime? @map("verified_at") @db.Timestamptz
+  fhirMedReqId    String?   @map("fhir_med_req_id") @db.VarChar(64)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  user         User         @relation("UserPrescriptions", fields: [userId], references: [id], onDelete: Cascade)
+  prescriber   User?        @relation("PrescribedByDoctor", fields: [prescribedById], references: [id])
+  document     Document?    @relation(fields: [documentId], references: [id])
+  medications  Medication[]
+
+  @@index([userId, prescriptionDate(sort: Desc)])
+  @@index([fhirMedReqId])
+  @@map("prescriptions")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VITALS, SYMPTOMS, CHRONIC CONDITIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model VitalSign {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  type          VitalType
+  value         Float
+  valueSecondary Float?   @map("value_secondary")
+  unit          String    @db.VarChar(20)
+  status        HealthStatus @default(NORMAL)
+  source        String?   @db.VarChar(30)
+  deviceName    String?   @map("device_name") @db.VarChar(100)
+  notes         String?
+  measuredAt    DateTime  @map("measured_at") @db.Timestamptz
+  loincCode     String?   @map("loinc_code") @db.VarChar(20)
+  fhirObsId     String?   @map("fhir_obs_id") @db.VarChar(64)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, measuredAt(sort: Desc)])
+  @@index([userId, measuredAt(sort: Desc)])
+  @@index([fhirObsId])
+  @@map("vital_signs")
+}
+
+model SymptomEntry {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  symptomName   String    @map("symptom_name") @db.VarChar(100)
+  bodyArea      String?   @map("body_area") @db.VarChar(50)
+  severity      Severity  @default(MILD)
+  duration      String?   @db.VarChar(50)
+  frequency     String?   @db.VarChar(50)
+  triggers      String[]  @default([])
+  accompaniedBy String[]  @map("accompanied_by") @default([])
+  notes         String?
+  startedAt     DateTime  @map("started_at") @db.Timestamptz
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz
+  snomedCode    String?   @map("snomed_code") @db.VarChar(20)
+  fhirCondId    String?   @map("fhir_cond_id") @db.VarChar(64)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([userId, symptomName])
+  @@index([snomedCode])
+  @@map("symptom_entries")
+}
+
+model ChronicCondition {
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @map("user_id") @db.Uuid
+  conditionName   String          @map("condition_name") @db.VarChar(255)
+  icdCode         String?         @map("icd_code") @db.VarChar(10)
+  snomedCode      String?         @map("snomed_code") @db.VarChar(20)
+  status          ConditionStatus @default(ACTIVE)
+  severity        Severity        @default(MODERATE)
+  diagnosedDate   DateTime?       @map("diagnosed_date") @db.Date
+  diagnosedBy     String?         @map("diagnosed_by") @db.VarChar(255)
+  resolvedDate    DateTime?       @map("resolved_date") @db.Date
+  notes           String?
+  managementPlan  Json?           @map("management_plan")
+  fhirConditionId String?         @map("fhir_condition_id") @db.VarChar(64)
+  deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([icdCode])
+  @@index([snomedCode])
+  @@map("chronic_conditions")
+}
+
+model HealthRecord {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  documentId     String?      @map("document_id") @db.Uuid
+  recordType     String       @map("record_type") @db.VarChar(30)
+  parameterName  String       @map("parameter_name") @db.VarChar(100)
+  value          String?      @db.VarChar(50)
+  unit           String?      @db.VarChar(30)
+  referenceMin   Float?       @map("reference_min")
+  referenceMax   Float?       @map("reference_max")
+  status         HealthStatus?
+  recordedDate   DateTime     @map("recorded_date") @db.Date
+  loincCode      String?      @map("loinc_code") @db.VarChar(20)
+  snomedCode     String?      @map("snomed_code") @db.VarChar(20)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@index([userId, parameterName, recordedDate(sort: Desc)])
+  @@index([loincCode])
+  @@map("health_records")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TIMELINE & MEDICAL EVENTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model TimelineEvent {
+  id            String            @id @default(uuid()) @db.Uuid
+  userId        String            @map("user_id") @db.Uuid
+  eventType     TimelineEventType @map("event_type")
+  title         String            @db.VarChar(255)
+  description   String?
+  metadata      Json?
+  severity      Severity?
+  documentId    String?           @map("document_id") @db.Uuid
+  refResourceType String?        @map("ref_resource_type") @db.VarChar(30)
+  refResourceId String?           @map("ref_resource_id") @db.Uuid
+  occurredAt    DateTime          @map("occurred_at") @db.Timestamptz
+  isHidden      Boolean           @default(false) @map("is_hidden")
+  isPinned      Boolean           @default(false) @map("is_pinned")
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, eventType])
+  @@index([refResourceType, refResourceId])
+  @@map("timeline_events")
+}
+
+model DoctorNote {
+  id            String    @id @default(uuid()) @db.Uuid
+  patientId     String    @map("patient_id") @db.Uuid
+  authorId      String    @map("author_id") @db.Uuid
+  noteType      String    @map("note_type") @db.VarChar(30)
+  title         String?   @db.VarChar(255)
+  subjective    String?
+  objective     String?
+  assessment    String?
+  plan          String?
+  icdCodes      String[]  @map("icd_codes") @default([])
+  cptCodes      String[]  @map("cpt_codes") @default([])
+  followUpDate  DateTime? @map("follow_up_date") @db.Date
+  isConfidential Boolean  @default(false) @map("is_confidential")
+  encryptionKeyId String? @map("encryption_key_id") @db.VarChar(64)
+  fhirEncounterId String? @map("fhir_encounter_id") @db.VarChar(64)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  patient User @relation("PatientNotes", fields: [patientId], references: [id], onDelete: Cascade)
+  author  User @relation("AuthoredNotes", fields: [authorId], references: [id])
+
+  @@index([patientId, createdAt(sort: Desc)])
+  @@index([authorId])
+  @@index([fhirEncounterId])
+  @@map("doctor_notes")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// REMINDERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model MedicineReminder {
+  id             String             @id @default(uuid()) @db.Uuid
+  userId         String             @map("user_id") @db.Uuid
+  createdBy      String?            @map("created_by") @db.Uuid
+  medicineName   String             @map("medicine_name") @db.VarChar(255)
+  dosage         String?            @db.VarChar(100)
+  frequency      ReminderFrequency
+  timesOfDay     String[]           @map("times_of_day")
+  daysOfWeek     Int[]              @map("days_of_week")
+  mealRelation   MealRelation       @default(ANY) @map("meal_relation")
+  startDate      DateTime           @map("start_date") @db.Date
+  endDate        DateTime?          @map("end_date") @db.Date
+  instructions   String?
+  isActive       Boolean            @default(true) @map("is_active")
+  snoozeMinutes  Int                @default(15) @map("snooze_minutes")
+  escalateAfter  Int                @default(30) @map("escalate_after")
+  deletedAt      DateTime?          @map("deleted_at") @db.Timestamptz
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  user    User  @relation("UserMedicineReminders", fields: [userId], references: [id], onDelete: Cascade)
+  creator User? @relation("CreatedByUser", fields: [createdBy], references: [id])
+
+  @@index([userId, isActive])
+  @@index([deletedAt])
+  @@map("medicine_reminders")
+}
+
+model WaterReminder {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @map("user_id") @db.Uuid
+  dailyGoalMl     Int      @default(2500) @map("daily_goal_ml")
+  intervalMinutes Int      @default(90) @map("interval_minutes")
+  activeStart     String   @default("07:00") @map("active_start") @db.VarChar(5)
+  activeEnd       String   @default("21:00") @map("active_end") @db.VarChar(5)
+  glassSizeMl     Int      @default(250) @map("glass_size_ml")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("water_reminders")
+}
+
+model MealReminder {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  mealType      MealType @map("meal_type")
+  scheduledTime String   @map("scheduled_time") @db.VarChar(5)
+  dietaryNotes  String?  @map("dietary_notes")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@map("meal_reminders")
+}
+
+model ReminderLog {
+  id            String            @id @default(uuid()) @db.Uuid
+  userId        String            @map("user_id") @db.Uuid
+  reminderType  ReminderType      @map("reminder_type")
+  reminderId    String            @map("reminder_id") @db.Uuid
+  scheduledAt   DateTime          @map("scheduled_at") @db.Timestamptz
+  deliveredAt   DateTime?         @map("delivered_at") @db.Timestamptz
+  respondedAt   DateTime?         @map("responded_at") @db.Timestamptz
+  response      ReminderResponse?
+  escalated     Boolean           @default(false)
+  escalatedTo   String?           @map("escalated_to") @db.Uuid
+  notes         String?
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  user         User  @relation("UserReminderLogs", fields: [userId], references: [id], onDelete: Cascade)
+  escalateUser User? @relation("EscalatedToUser", fields: [escalatedTo], references: [id])
+
+  @@index([userId, scheduledAt(sort: Desc)])
+  @@index([userId, reminderType, scheduledAt(sort: Desc)])
+  @@map("reminder_logs")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FAMILY, SHARING, CHAT, NOTIFICATIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model FamilyGroup {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @db.VarChar(100)
+  createdBy String    @map("created_by") @db.Uuid
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  creator User                @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  members FamilyGroupMember[]
+
+  @@map("family_groups")
+}
+
+model FamilyGroupMember {
+  id                 String     @id @default(uuid()) @db.Uuid
+  familyGroupId      String     @map("family_group_id") @db.Uuid
+  userId             String     @map("user_id") @db.Uuid
+  role               FamilyRole
+  relationship       String?    @db.VarChar(30)
+  canView            Boolean    @default(true) @map("can_view")
+  canEdit            Boolean    @default(false) @map("can_edit")
+  canManageReminders Boolean    @default(false) @map("can_manage_reminders")
+  canViewReports     Boolean    @default(false) @map("can_view_reports")
+  canChat            Boolean    @default(true) @map("can_chat")
+  joinedAt           DateTime   @default(now()) @map("joined_at") @db.Timestamptz
+  removedAt          DateTime?  @map("removed_at") @db.Timestamptz
+
+  familyGroup FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyGroupId, userId])
+  @@map("family_group_members")
+}
+
+model DoctorShare {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  shareToken    String    @unique @map("share_token") @db.VarChar(64)
+  doctorName    String?   @map("doctor_name") @db.VarChar(255)
+  doctorEmail   String?   @map("doctor_email") @db.VarChar(255)
+  doctorPhone   String?   @map("doctor_phone") @db.VarChar(15)
+  accessLevel   String    @default("read_only") @map("access_level") @db.VarChar(20)
+  sharedResources String[] @map("shared_resources") @default(["lab_reports", "prescriptions"])
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz
+  isRevoked     Boolean   @default(false) @map("is_revoked")
+  accessedCount Int       @default(0) @map("accessed_count")
+  lastAccessed  DateTime? @map("last_accessed") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([shareToken])
+  @@index([userId])
+  @@map("doctor_shares")
+}
+
+model ChatSession {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  title        String?  @db.VarChar(255)
+  contextType  String?  @map("context_type") @db.VarChar(30)
+  contextRefId String?  @map("context_ref_id") @db.Uuid
+  isActive     Boolean  @default(true) @map("is_active")
+  totalTokens  Int      @default(0) @map("total_tokens")
+  totalCostUsd Float    @default(0) @map("total_cost_usd")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid()) @db.Uuid
+  sessionId  String   @map("session_id") @db.Uuid
+  role       ChatRole
+  content    String
+  metadata   Json?
+  tokensUsed Int?     @map("tokens_used")
+  latencyMs  Int?     @map("latency_ms")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("chat_messages")
+}
+
+model Notification {
+  id          String              @id @default(uuid()) @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  type        NotificationType
+  channel     NotificationChannel
+  title       String              @db.VarChar(255)
+  body        String?
+  data        Json?
+  actionUrl   String?             @map("action_url")
+  status      NotificationStatus  @default(PENDING)
+  sentAt      DateTime?           @map("sent_at") @db.Timestamptz
+  readAt      DateTime?           @map("read_at") @db.Timestamptz
+  expiresAt   DateTime?           @map("expires_at") @db.Timestamptz
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status])
+  @@index([expiresAt])
+  @@map("notifications")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INFRASTRUCTURE — Audit, Uploads, Data Export
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(50)
+  resource   String   @db.VarChar(50)
+  resourceId String?  @map("resource_id") @db.Uuid
+  oldData    Json?    @map("old_data")
+  newData    Json?    @map("new_data")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  severity   String   @default("INFO") @db.VarChar(10)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([resource, resourceId])
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model FileUpload {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  originalName    String           @map("original_name") @db.VarChar(255)
+  storedPath      String           @map("stored_path")
+  mimeType        String           @map("mime_type") @db.VarChar(100)
+  sizeBytes       BigInt           @map("size_bytes")
+  checksum        String           @db.VarChar(64)
+  encryptionKeyId String?          @map("encryption_key_id") @db.VarChar(64)
+  scanStatus      ProcessingStatus @default(PENDING) @map("scan_status")
+  scanResult      String?          @map("scan_result") @db.VarChar(30)
+  isQuarantined   Boolean          @default(false) @map("is_quarantined")
+  deletedAt       DateTime?        @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([checksum])
+  @@map("file_uploads")
+}
+
+model DataExportRequest {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @map("user_id") @db.Uuid
+  format      String           @default("json") @db.VarChar(10)
+  status      ProcessingStatus @default(PENDING)
+  downloadUrl String?          @map("download_url")
+  expiresAt   DateTime?        @map("expires_at") @db.Timestamptz
+  requestedAt DateTime         @default(now()) @map("requested_at") @db.Timestamptz
+  completedAt DateTime?        @map("completed_at") @db.Timestamptz
+
+  @@index([userId])
+  @@map("data_export_requests")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VECTOR STORAGE — RAG SUPPORT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model DocumentChunk {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  content    String
+  // vector is added manually via SQL for pgvector support
+  // metadata stores positioning and semantic context
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("document_chunks")
+}
+
+model UserDevice {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  pushToken    String   @unique @map("push_token")
+  deviceType   String   @map("device_type") @db.VarChar(20) // ios, android, web
+  deviceName   String?  @map("device_name") @db.VarChar(100)
+  osVersion    String?  @map("os_version") @db.VarChar(20)
+  appVersion   String?  @map("app_version") @db.VarChar(20)
+  isActive     Boolean  @default(true) @map("is_active")
+  lastUsedAt   DateTime @default(now()) @map("last_used_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_devices")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// COMPLIANCE — DPDP Consent Management
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model DataConsent {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  purpose      String   @db.VarChar(100) // e.g., "AI_SUMMARIZATION", "FAMILY_SHARING"
+  isGranted    Boolean  @default(false) @map("is_granted")
+  grantedAt    DateTime? @map("granted_at") @db.Timestamptz
+  withdrawnAt  DateTime? @map("withdrawn_at") @db.Timestamptz
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  userAgent    String?  @map("user_agent") @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("data_consents")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECURITY — Multi-Factor Authentication
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+enum MfaType {
+  NONE
+  TOTP
+  SMS
+  EMAIL
+}
+
+model UserMfa {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  type         MfaType  @default(NONE)
+  secret       String?  @db.VarChar(255) // Encrypted TOTP secret
+  backupCodes  String[] @map("backup_codes")
+  isEnabled    Boolean  @default(false) @map("is_enabled")
+  verifiedAt   DateTime? @map("verified_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_mfa")
+}
+
+model FamilyMember {
+  id           String           @id @default(uuid()) @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  fullName     String           @map("full_name") @db.VarChar(100)
+  relationship RelationshipType @default(OTHER)
+  dateOfBirth  DateTime?        @map("date_of_birth") @db.Date
+  gender       Gender?
+  avatarUrl    String?          @map("avatar_url")
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  user        User               @relation("UserFamilyMembers", fields: [userId], references: [id], onDelete: Cascade)
+  permissions AccessPermission[]
+
+  @@map("family_members")
+}
+
+model AccessPermission {
+  id             String      @id @default(uuid()) @db.Uuid
+  userId         String      @map("user_id") @db.Uuid
+  familyMemberId String      @map("family_member_id") @db.Uuid
+  accessLevel    AccessLevel @default(VIEW) @map("access_level")
+  grantedById    String      @map("granted_by_id") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  user         User         @relation("UserPermissions", fields: [userId], references: [id], onDelete: Cascade)
+  familyMember FamilyMember @relation(fields: [familyMemberId], references: [id], onDelete: Cascade)
+  grantedBy    User         @relation("PermissionsGrantedBy", fields: [grantedById], references: [id])
+
+  @@unique([userId, familyMemberId])
+  @@map("access_permissions")
+}
