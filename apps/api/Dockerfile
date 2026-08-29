@@ -19,7 +19,10 @@ RUN pnpm install --frozen-lockfile --prod=false
 
 # ─── Build ──────────────────────────────────
 FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
+ARG DATABASE_URL="postgresql://postgres:postgres@localhost:5432/maate_placeholder"
+ENV DATABASE_URL=${DATABASE_URL}
+
+COPY --from=deps /app ./
 COPY . .
 RUN pnpm run db:generate
 RUN pnpm --filter @maate/api build
