@@ -6,3 +6,13 @@ build
 coverage
 *.lock
 pnpm-lock.yaml
+
+# Legacy unformatted directories (pending dedicated formatting pass)
+apps/
+services/
+packages/database/
+packages/shared-types/
+packages/eslint-config/
+packages/tsconfig/
+docs/
+*.md
