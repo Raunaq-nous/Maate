@@ -1,7 +1,8 @@
 # Dependencies
 node_modules/
-.pnp
+.pnpm
 .pnp.js
+.pnpm-store/
 
 # Build outputs
 dist/
@@ -15,9 +16,9 @@ out/
 
 # Environment
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+!.env.production.template
 
 # IDE
 .vscode/settings.json
@@ -29,12 +30,15 @@ out/
 # Testing
 coverage/
 .nyc_output/
+*.lcov
 
 # Logs
 logs/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Docker volumes
 .docker-data/
@@ -47,15 +51,17 @@ __pycache__/
 .eggs/
 venv/
 .venv/
+.pytest_cache/
 
 # Prisma
 packages/database/src/generated/
 
-# Expo
+# Expo & Mobile
+.expo/
 apps/mobile/.expo/
 apps/mobile/ios/
 apps/mobile/android/
 
-# OS
+# OS / Deployments
 Thumbs.db
 .vercel

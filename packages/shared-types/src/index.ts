@@ -161,6 +161,9 @@ export type DocumentTypeEnum =
   | 'IMAGING'
   | 'INSURANCE'
   | 'VACCINATION'
+  | 'DOCTOR_NOTE'
+  | 'REFERRAL'
+  | 'CONSENT_FORM'
   | 'OTHER';
 
 export type ProcessingStatusEnum = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';

@@ -4,8 +4,9 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import type { UserProfile, FamilyMemberResponse } from "@maate/shared-types";
 
-interface User {
+export interface User {
   id: string;
   email: string;
   fullName: string;

@@ -8,6 +8,7 @@ import { useState } from "react";
 import axios from "axios";
 import apiClient from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import type { DocumentTypeEnum } from "@maate/shared-types";
 
 export interface UploadFile {
   id: string;
@@ -18,7 +19,7 @@ export interface UploadFile {
   reportId?: string;
 }
 
-function getDocumentType(file: File): string {
+function getDocumentType(file: File): DocumentTypeEnum {
   const name = file.name.toLowerCase();
   if (name.includes("prescription") || name.includes("rx") || name.includes("medication")) {
     return "PRESCRIPTION";
