@@ -6,7 +6,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**", "src/generated/**"],
       "env": ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_ANON_KEY"]
     },
     "dev": {

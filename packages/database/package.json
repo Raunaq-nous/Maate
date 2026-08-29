@@ -6,7 +6,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm",
+    "build": "prisma generate && tsup src/index.ts --format cjs,esm",
     "clean": "rm -rf dist .turbo",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
