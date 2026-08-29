@@ -25,10 +25,11 @@ export interface Profile {
 interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
   selectedProfileId: string | null;
   profiles: Profile[];
-  setAuth: (user: User, token: string) => void;
+  setAuth: (user: User, token: string, refreshToken?: string | null) => void;
   logout: () => void;
   setSelectedProfileId: (id: string | null) => void;
   setProfiles: (profiles: Profile[]) => void;
@@ -40,21 +41,40 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       token: null,
+      refreshToken: null,
       isAuthenticated: false,
       selectedProfileId: null,
       profiles: [],
-      setAuth: (user, token) => {
-        set({ user, token, isAuthenticated: true, selectedProfileId: user.id });
+      setAuth: (user, token, refreshToken) => {
+        const effectiveRefreshToken = refreshToken ?? get().refreshToken;
+        set({
+          user,
+          token,
+          refreshToken: effectiveRefreshToken,
+          isAuthenticated: true,
+          selectedProfileId: user.id,
+        });
         if (typeof window !== "undefined") {
           localStorage.setItem("maate_token", token);
+          if (effectiveRefreshToken) {
+            localStorage.setItem("maate_refresh_token", effectiveRefreshToken);
+          }
           const isSecure = window.location.protocol === "https:";
           document.cookie = `maate_token=${token}; path=/; max-age=2592000; SameSite=Lax${isSecure ? "; Secure" : ""}`;
         }
       },
       logout: () => {
-        set({ user: null, token: null, isAuthenticated: false, selectedProfileId: null, profiles: [] });
+        set({
+          user: null,
+          token: null,
+          refreshToken: null,
+          isAuthenticated: false,
+          selectedProfileId: null,
+          profiles: [],
+        });
         if (typeof window !== "undefined") {
           localStorage.removeItem("maate_token");
+          localStorage.removeItem("maate_refresh_token");
           document.cookie = "maate_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
         }
       },

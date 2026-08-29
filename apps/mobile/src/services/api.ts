@@ -35,14 +35,27 @@ apiClient.interceptors.response.use(
 
       try {
         const refreshToken = await SecureStore.getItemAsync('refreshToken');
+        if (!refreshToken) {
+          throw new Error('No refresh token available');
+        }
+
         const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
           refreshToken,
         });
 
-        await SecureStore.setItemAsync('accessToken', data.data.accessToken);
-        await SecureStore.setItemAsync('refreshToken', data.data.refreshToken);
+        const newAccessToken = data.accessToken || data.data?.accessToken;
+        const newRefreshToken = data.refreshToken || data.data?.refreshToken;
 
-        originalRequest.headers.Authorization = `Bearer ${data.data.accessToken}`;
+        if (!newAccessToken) {
+          throw new Error('No access token returned from refresh endpoint');
+        }
+
+        await SecureStore.setItemAsync('accessToken', newAccessToken);
+        if (newRefreshToken) {
+          await SecureStore.setItemAsync('refreshToken', newRefreshToken);
+        }
+
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return apiClient(originalRequest);
       } catch {
         // Refresh failed — force logout

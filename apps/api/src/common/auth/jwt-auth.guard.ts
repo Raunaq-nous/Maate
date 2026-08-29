@@ -44,6 +44,16 @@ export class JwtAuthGuard implements CanActivate {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
+
+      if (payload.sessionId) {
+        const session = await this.prisma.userSession.findUnique({
+          where: { id: payload.sessionId },
+          select: { isActive: true },
+        });
+        if (!session || !session.isActive) {
+          throw new UnauthorizedException('Session has been revoked or logged out');
+        }
+      }
       
       const patientIdHeader = request.headers['x-patient-id'];
       const patientId = Array.isArray(patientIdHeader) ? patientIdHeader[0] : patientIdHeader;

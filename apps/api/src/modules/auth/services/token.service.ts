@@ -108,10 +108,23 @@ export class TokenService {
       data: { isRevoked: true },
     });
 
+    // Find latest active session to preserve sessionId in refreshed access token
+    const activeSession = await this.prisma.userSession.findFirst({
+      where: { userId: stored.user.id, isActive: true },
+      orderBy: { lastActiveAt: 'desc' },
+    });
+
+    if (activeSession) {
+      await this.prisma.userSession.update({
+        where: { id: activeSession.id },
+        data: { lastActiveAt: new Date() },
+      });
+    }
+
     // Issue new pair in same family
     return this.generateTokenPair(
       { id: stored.user.id, email: stored.user.email, phone: stored.user.phone, role: stored.user.role },
-      { userAgent: meta?.userAgent, ipAddress: meta?.ipAddress, family: stored.family },
+      { userAgent: meta?.userAgent, ipAddress: meta?.ipAddress, family: stored.family, sessionId: activeSession?.id },
     );
   }
 

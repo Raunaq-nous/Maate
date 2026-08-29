@@ -7,7 +7,7 @@ import axios, { InternalAxiosRequestConfig } from "axios";
 import { useAuthStore } from "@/store/use-auth-store";
 
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/v1",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1",
   headers: {
     "Content-Type": "application/json",
     "ngrok-skip-browser-warning": "true",
@@ -74,16 +74,33 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const res = await axios.post(`${apiClient.defaults.baseURL}/auth/refresh`, {}, {
-          headers: { "ngrok-skip-browser-warning": "true" }
-        });
-        const { token, user } = res.data;
+        const storedRefreshToken =
+          useAuthStore.getState().refreshToken ||
+          (typeof window !== "undefined" ? localStorage.getItem("maate_refresh_token") : null);
 
-        useAuthStore.getState().setAuth(user, token);
-        apiClient.defaults.headers.common["Authorization"] = "Bearer " + token;
-        originalRequest.headers["Authorization"] = "Bearer " + token;
+        if (!storedRefreshToken) {
+          throw new Error("No refresh token available");
+        }
 
-        processQueue(null, token);
+        const res = await axios.post(
+          `${apiClient.defaults.baseURL}/auth/refresh`,
+          { refreshToken: storedRefreshToken },
+          { headers: { "ngrok-skip-browser-warning": "true" } }
+        );
+
+        const newAccessToken = res.data.accessToken || res.data.token;
+        const newRefreshToken = res.data.refreshToken || storedRefreshToken;
+        const currentUser = res.data.user || useAuthStore.getState().user;
+
+        if (!newAccessToken) {
+          throw new Error("No access token returned from refresh endpoint");
+        }
+
+        useAuthStore.getState().setAuth(currentUser, newAccessToken, newRefreshToken);
+        apiClient.defaults.headers.common["Authorization"] = "Bearer " + newAccessToken;
+        originalRequest.headers["Authorization"] = "Bearer " + newAccessToken;
+
+        processQueue(null, newAccessToken);
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);

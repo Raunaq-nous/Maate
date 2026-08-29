@@ -23,9 +23,9 @@ export function useAuth() {
     try {
       const { rememberMe, ...loginPayload } = data;
       const res = await apiClient.post("/auth/login", loginPayload);
-      const { user, token } = res.data;
+      const { user, accessToken, token, refreshToken } = res.data;
       
-      setAuth(user, token);
+      setAuth(user, accessToken || token, refreshToken);
       toast({
         title: "Welcome back!",
         description: "Secure session initialized.",
@@ -65,7 +65,12 @@ export function useAuth() {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await apiClient.post("/auth/logout");
+    } catch {
+      // Ignore network or token errors during logout
+    }
     storeLogout();
     router.push("/login");
   };

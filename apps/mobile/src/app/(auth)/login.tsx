@@ -3,16 +3,24 @@
 // Email/password + OTP + Google + Apple + Biometric
 // ============================================
 
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView, Platform, Pressable, StyleSheet,
-  Text, TextInput, View, ScrollView, Alert,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Colors, Spacing, Typography, BorderRadius } from '@/constants/theme';
+
 import { Button, GlassCard } from '@/components/ui';
+import { BorderRadius, Colors, Spacing, Typography } from '@/constants/theme';
 import { useAuthStore } from '@/store/authStore';
 
 type AuthTab = 'login' | 'register';
@@ -87,7 +95,7 @@ export default function LoginScreen() {
     try {
       await loginWithBiometric();
       router.replace('/(tabs)/home');
-    } catch (e: any) {
+    } catch {
       Alert.alert('Error', 'Biometric login failed');
     }
     setLoading(false);
