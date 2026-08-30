@@ -2,7 +2,7 @@
 # MAATE OCR Service — FastAPI Application
 # ============================================
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
@@ -56,14 +56,16 @@ class OCRExtractRequest(BaseModel):
 @app.post("/api/v1/ocr/upload")
 async def extract_upload(
     file: UploadFile = File(...),
-    document_id: str = "unknown",
-    document_type: str = "lab_report"
+    document_id: str = Form("unknown"),
+    document_type: str = Form("lab_report")
 ):
     """
     Extract text from uploaded file.
     """
     try:
         content = await file.read()
+        if not content:
+            raise HTTPException(400, "Empty file uploaded")
         
         # Step 1: Preprocess
         preprocessor = ImagePreprocessor()
@@ -72,6 +74,9 @@ async def extract_upload(
         # Step 2: OCR
         engine = OCREngine()
         raw_text, confidence = engine.extract(processed)
+
+        if not raw_text or not raw_text.strip():
+            raise HTTPException(422, "OCR engine could not extract readable text from document")
 
         # Step 3: Medical NER
         ner = MedicalNERExtractor()
@@ -89,6 +94,8 @@ async def extract_upload(
                 "engine_used": engine.engine_name,
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"OCR upload extraction failed: {e}")
         raise HTTPException(500, str(e))

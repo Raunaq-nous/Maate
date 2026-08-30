@@ -68,6 +68,34 @@ export default function ReportSummaryScreen() {
     );
   }
 
+  if (!summary) {
+    return (
+      <View style={s.container}>
+        <LinearGradient colors={[Colors.dark.bg, Colors.dark.surface]} style={StyleSheet.absoluteFill} />
+        <View style={s.header}>
+          <Pressable onPress={() => router.back()} style={s.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={Colors.dark.text} />
+          </Pressable>
+          <Text style={s.title}>AI Insights</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={[s.center, { paddingHorizontal: Spacing.xl }]}>
+          <Ionicons name="document-text-outline" size={48} color={Colors.primary[400]} />
+          <Text style={[s.title, { marginTop: 16, textAlign: 'center' }]}>Summary In Progress</Text>
+          <Text style={[s.loadingText, { marginTop: 8 }]}>
+            OCR extraction is ready. AI clinical summarization has not yet been generated for this document.
+          </Text>
+          <Button
+            title="Back to Records"
+            variant="secondary"
+            style={{ marginTop: 24 }}
+            onPress={() => router.back()}
+          />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={s.container}>
       <LinearGradient colors={[Colors.dark.bg, Colors.dark.surface]} style={StyleSheet.absoluteFill} />

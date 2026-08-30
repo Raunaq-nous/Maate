@@ -1,6 +1,8 @@
 """OCR Engine — Tesseract with Google Vision fallback."""
 import logging
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -9,18 +11,18 @@ class OCREngine:
 
     def __init__(self):
         self.engine_name = "tesseract"
-        self.confidence_threshold = 0.7
+        self.confidence_threshold = 0.6
 
     def extract(self, image_data: bytes) -> tuple[str, float]:
         """
-        Extract text using Tesseract, fallback to Google Vision if confidence < 0.7.
+        Extract text using Tesseract, fallback to Google Vision if confidence < threshold and API key is set.
 
         Returns: (raw_text, confidence_score)
         """
         # Primary: Tesseract
         text, confidence = self._tesseract_extract(image_data)
 
-        if confidence < self.confidence_threshold:
+        if (not text or confidence < self.confidence_threshold) and settings.GOOGLE_VISION_API_KEY:
             logger.info(f"Tesseract confidence {confidence:.2f} < {self.confidence_threshold}, falling back to Google Vision")
             text, confidence = self._google_vision_extract(image_data)
             self.engine_name = "google_vision"

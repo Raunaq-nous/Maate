@@ -88,14 +88,15 @@ export class DocumentService {
       return doc;
     });
 
-    // 3. Enqueue for async processing (Virus Scan -> OCR -> AI)
+    // 3. Enqueue for BullMQ async processing (Virus Scan -> OCR)
     await this.processing.enqueue({
       documentId: result.id,
       userId,
       fileKey: metadata.key,
       contentType: metadata.contentType,
       fileName: result.title || 'unknown',
-      pipeline: ['virus_scan', 'ocr', 'ai_summary'],
+      documentType: dto.documentType,
+      pipeline: ['virus_scan', 'ocr'],
     });
 
     this.logger.log(`Document upload confirmed: ${result.id} for user ${userId}`);

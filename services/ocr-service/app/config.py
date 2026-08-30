@@ -1,5 +1,5 @@
 """OCR Service configuration."""
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,8 +13,7 @@ class Settings(BaseSettings):
     GOOGLE_VISION_API_KEY: str = ""
     TESSERACT_LANG: str = "eng"
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(extra="ignore", env_file=".env")
 
 
 settings = Settings()

@@ -97,9 +97,13 @@ export class StorageService {
       Key: fileKey,
       ContentType: contentType,
       ContentLength: fileSizeBytes,
-      // Server-side encryption
-      ServerSideEncryption: 'aws:kms',
-      SSEKMSKeyId: this.config.get('S3_KMS_KEY_ID'),
+      // Server-side encryption (when KMS key configured)
+      ...(this.config.get('S3_KMS_KEY_ID')
+        ? {
+            ServerSideEncryption: 'aws:kms' as const,
+            SSEKMSKeyId: this.config.get('S3_KMS_KEY_ID'),
+          }
+        : {}),
       // Metadata for audit
       Metadata: {
         'x-user-id': userId,
