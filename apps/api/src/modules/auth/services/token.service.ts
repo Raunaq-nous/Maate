@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 
 import { PrismaService } from '../../../common/database/database.module';
+import { RevokeReason } from '@maate/database';
 
 export interface JwtPayload {
   sub: string;
@@ -83,15 +84,33 @@ export class TokenService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // THEFT DETECTION: if token was already used (revoked),
-    // revoke ENTIRE family — an attacker may have stolen the old token
+    // Check revoked status and branch on specific revocation reason
     if (stored.isRevoked) {
-      this.logger.warn(`Refresh token reuse detected! Revoking family=${stored.family} user=${stored.userId}`);
-      await this.prisma.refreshToken.updateMany({
-        where: { family: stored.family },
-        data: { isRevoked: true },
-      });
-      throw new UnauthorizedException('Token reuse detected. All sessions revoked for security.');
+      if (stored.revokedReason === RevokeReason.LOGOUT) {
+        throw new UnauthorizedException('Session has ended. Please log in again.');
+      }
+
+      if (stored.revokedReason === RevokeReason.THEFT_DETECTED) {
+        throw new UnauthorizedException('Session revoked due to security incident. Please log in again.');
+      }
+
+      if (stored.revokedReason === RevokeReason.ROTATED) {
+        // THEFT DETECTION: this token was already rotated out and should not be reused.
+        // Revoke remaining active tokens in this family as an emergency mitigation response.
+        this.logger.warn(`Refresh token reuse detected! Revoking family=${stored.family} user=${stored.userId}`);
+        await this.prisma.refreshToken.updateMany({
+          where: { family: stored.family, isRevoked: false },
+          data: {
+            isRevoked: true,
+            revokedReason: RevokeReason.THEFT_DETECTED,
+            revokedAt: new Date(),
+          },
+        });
+        throw new UnauthorizedException('Token reuse detected. All sessions revoked for security.');
+      }
+
+      // Legacy fallback for pre-existing rows revoked without a recorded reason
+      throw new UnauthorizedException('Session has ended. Please log in again.');
     }
 
     if (stored.expiresAt < new Date()) {
@@ -102,10 +121,14 @@ export class TokenService {
       throw new UnauthorizedException('Account is disabled');
     }
 
-    // Revoke current token (one-time use)
+    // Revoke current token (one-time use via normal rotation)
     await this.prisma.refreshToken.update({
       where: { id: stored.id },
-      data: { isRevoked: true },
+      data: {
+        isRevoked: true,
+        revokedReason: RevokeReason.ROTATED,
+        revokedAt: new Date(),
+      },
     });
 
     // Find latest active session to preserve sessionId in refreshed access token
@@ -140,19 +163,27 @@ export class TokenService {
   }
 
   // ─── Revoke all tokens for user ─────────────
-  async revokeAllTokens(userId: string) {
+  async revokeAllTokens(userId: string, reason: RevokeReason = RevokeReason.LOGOUT) {
     const result = await this.prisma.refreshToken.updateMany({
       where: { userId, isRevoked: false },
-      data: { isRevoked: true },
+      data: {
+        isRevoked: true,
+        revokedReason: reason,
+        revokedAt: new Date(),
+      },
     });
-    this.logger.log(`Revoked ${result.count} tokens for user ${userId}`);
+    this.logger.log(`Revoked ${result.count} tokens for user ${userId} (reason=${reason})`);
   }
 
   // ─── Revoke specific family ─────────────────
-  async revokeTokenFamily(family: string) {
+  async revokeTokenFamily(family: string, reason: RevokeReason = RevokeReason.THEFT_DETECTED) {
     await this.prisma.refreshToken.updateMany({
-      where: { family },
-      data: { isRevoked: true },
+      where: { family, isRevoked: false },
+      data: {
+        isRevoked: true,
+        revokedReason: reason,
+        revokedAt: new Date(),
+      },
     });
   }
 

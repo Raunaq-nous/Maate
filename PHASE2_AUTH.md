@@ -58,7 +58,7 @@ Key outcomes:
 ### 3.3 Prisma Models Status
 - `User`: Fully used for core credentials, audit logging, lockout, and profile metadata.
 - `OAuthAccount`: Fully used by `OAuthService` for Google and Apple identities.
-- `RefreshToken`: Fully used by `TokenService` with `family`, `isRevoked`, `userAgent`, `ipAddress`, and `expiresAt`.
+- `RefreshToken`: Fully used by `TokenService` with `family`, `isRevoked`, `revokedReason` (`ROTATED`, `LOGOUT`, `THEFT_DETECTED`), `revokedAt`, `userAgent`, `ipAddress`, and `expiresAt`.
 - `UserSession`: Fully integrated for active session tracking and instant revocation.
 - `PasswordReset`: Fully used for forgot-password workflows.
 - `UserDevice`: **Not an auth model.** Used strictly by `NotificationService` for FCM/APNS push device tokens.
@@ -68,25 +68,25 @@ Key outcomes:
 
 ## 4. Steps 2, 3, 4: Token Rotation, Session Invalidation & Logout
 
-### 4.1 Family-Based Refresh Token Rotation
+### 4.1 Family-Based Refresh Token Rotation & Distinct Revocation Reasons
 - When `POST /api/v1/auth/refresh` is called with a valid refresh token:
-  1. The presented token is marked `isRevoked: true` (single-use).
+  1. The presented token is marked `isRevoked: true, revokedReason: ROTATED, revokedAt: now()` (single-use).
   2. A new token pair is generated with the same `family` UUID.
   3. The active `UserSession` is preserved and updated with the latest activity timestamp.
 - If a client or adversary attempts to replay an already-revoked refresh token:
-  1. `TokenService` detects token reuse.
-  2. All refresh tokens belonging to that `family` are immediately marked `isRevoked: true`.
-  3. The API returns `401 Unauthorized` with `"Token reuse detected. All sessions revoked for security."`.
+  1. **If `revokedReason === ROTATED`:** Genuine reuse of a superseded token. `TokenService` triggers theft detection: marks remaining active tokens in the family as `isRevoked: true, revokedReason: THEFT_DETECTED, revokedAt: now()` while preserving historical `ROTATED` reasons on previously retired tokens. Returns `401 Unauthorized` with `"Token reuse detected. All sessions revoked for security."`.
+  2. **If `revokedReason === LOGOUT`:** The token was retired normally via user logout or session revocation. Does NOT trigger a false theft alarm. Returns `401 Unauthorized` with `"Session has ended. Please log in again."`.
+  3. **If `revokedReason === THEFT_DETECTED`:** The token was previously revoked as part of a family theft containment. Returns `401 Unauthorized` with `"Session revoked due to security incident. Please log in again."`.
 
 ### 4.2 Real Server-Side Logout
 - Calling `POST /api/v1/auth/logout`:
   1. Identifies `sessionId` from the validated JWT claims.
   2. Marks that `UserSession` record `isActive: false` in PostgreSQL.
-  3. Revokes all active refresh tokens for the user in PostgreSQL.
+  3. Revokes all active refresh tokens for the user in PostgreSQL with `isRevoked: true, revokedReason: LOGOUT, revokedAt: now()`.
   4. Instant access token invalidation: Any subsequent API call with that access token is rejected with `401 Unauthorized` by `JwtAuthGuard` because its backing session is inactive.
 - Calling `POST /api/v1/auth/logout-all`:
   1. Marks all `UserSession` records for that user `isActive: false`.
-  2. Revokes all refresh tokens across all devices for that user.
+  2. Revokes all refresh tokens across all devices for that user with `revokedReason: LOGOUT`.
 
 ---
 
@@ -263,7 +263,7 @@ curl -s -X POST http://localhost:3002/api/v1/auth/refresh \
 ```
 
 ### 7.6 Token Reuse Replay & Family Theft Revocation
-Replaying the already-rotated token `jlALramXtpS3hmADZKxJIhbhhhBPVEV56MoPi9m5l60WvhHhELQLEYIwbfuAjrW8`:
+Replaying the genuinely rotated-out token `_BnPbcmsxwqIfHg6vKxSix8YfLA2iQD_dqHv1AtkSJuKRf3C3WhQ8dd0mkiqkKjV`:
 **Response (HTTP 401 Unauthorized):**
 ```http
 HTTP/1.1 401 Unauthorized
@@ -272,19 +272,18 @@ Content-Type: application/json; charset=utf-8
 {"message":"Token reuse detected. All sessions revoked for security.","error":"Unauthorized","statusCode":401}
 ```
 **Database Confirmation:**
+The rotated token retains its historical `ROTATED` reason, while active tokens in that family are marked `THEFT_DETECTED`:
 ```json
-Family Tokens in DB: [
-  {
-    "token": "jlALramXtpS3hmADZKxJIhbhhhBPVEV56MoPi9m5l60WvhHhELQLEYIwbfuAjrW8",
-    "family": "bccf2134c5b6770e027c446029f47ab1",
-    "isRevoked": true
-  },
-  {
-    "token": "YOLUPx1ffkgg4x12FCZ1bm0B_Gh7nQ_-SWg9a1ytza1xJZi1Rcw19CvXv1xrmqNG",
-    "family": "bccf2134c5b6770e027c446029f47ab1",
-    "isRevoked": true
-  }
-]
+T1 (Replayed): { "isRevoked": true, "revokedReason": "ROTATED", "revokedAt": "2026-08-30T05:59:52.615Z" }
+T2 (Family Member): { "isRevoked": true, "revokedReason": "THEFT_DETECTED", "revokedAt": "2026-08-30T06:00:02.339Z" }
+```
+
+When the theft-revoked token `T2` is subsequently presented to `/api/v1/auth/refresh`:
+```http
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"message":"Session revoked due to security incident. Please log in again.","error":"Unauthorized","statusCode":401}
 ```
 
 ### 7.7 Password Login & Server-Side Logout
@@ -294,7 +293,7 @@ curl -s -X POST http://localhost:3002/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"test.user@maate.health","password":"Password123!","deviceName":"MacBook Air","deviceOS":"macOS"}'
 ```
-Returns `sessionId: ef4e5e27-eb44-4f66-bf05-cbfd67a9baf8`.
+Returns `sessionId: 6fc6abe4-5b7f-425d-9b02-c2ccdb4fa96d` and refresh token `4oNaBtuwwSEFICzTdodNzIXmyOt-WRphVFqHbExzes0-T1lA42uuv1jrxfWf8mCx`.
 
 **Logout Request:**
 ```bash
@@ -303,31 +302,28 @@ curl -s -X POST http://localhost:3002/api/v1/auth/logout \
 # Output: {"message":"Logged out successfully"}
 ```
 
-**Post-Logout Protected Endpoint Call with Same Access Token:**
-```bash
-curl -s -i -X GET http://localhost:3002/api/v1/auth/sessions \
-  -H "Authorization: Bearer $LOGIN_ACCESS_TOKEN"
-```
-**Response (HTTP 401 Unauthorized):**
-```http
-HTTP/1.1 401 Unauthorized
-Content-Type: application/json; charset=utf-8
-
-{"message":"Invalid or expired token","error":"Unauthorized","statusCode":401}
+**Database Row State for Refresh Token After Logout:**
+```json
+{
+  "token": "4oNaBtuwwSEFICzTdodNzIXmyOt-WRphVFqHbExzes0-T1lA42uuv1jrxfWf8mCx",
+  "isRevoked": true,
+  "revokedReason": "LOGOUT",
+  "revokedAt": "2026-08-30T06:00:27.550Z"
+}
 ```
 
-**Post-Logout Refresh Attempt with Logged-Out Refresh Token:**
+**Post-Logout Refresh Attempt (Accurately Reflects Session Ended):**
 ```bash
 curl -s -i -X POST http://localhost:3002/api/v1/auth/refresh \
   -H "Content-Type: application/json" \
-  -d '{"refreshToken":"fgAic0gqpi67xh06M_iesJRPXcSZqK9ni8q1gqyzCp2QPDj_I9zVNqdJxbRLbNWb"}'
+  -d '{"refreshToken":"4oNaBtuwwSEFICzTdodNzIXmyOt-WRphVFqHbExzes0-T1lA42uuv1jrxfWf8mCx"}'
 ```
 **Response (HTTP 401 Unauthorized):**
 ```http
 HTTP/1.1 401 Unauthorized
 Content-Type: application/json; charset=utf-8
 
-{"message":"Token reuse detected. All sessions revoked for security.","error":"Unauthorized","statusCode":401}
+{"message":"Session has ended. Please log in again.","error":"Unauthorized","statusCode":401}
 ```
 
 ---

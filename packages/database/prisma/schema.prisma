@@ -324,16 +324,24 @@ model OAuthAccount {
   @@map("oauth_accounts")
 }
 
+enum RevokeReason {
+  ROTATED
+  LOGOUT
+  THEFT_DETECTED
+}
+
 model RefreshToken {
-  id          String   @id @default(uuid()) @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  token       String   @unique @db.VarChar(500)
-  family      String   @default(uuid()) @db.VarChar(36)
-  expiresAt   DateTime @map("expires_at") @db.Timestamptz
-  isRevoked   Boolean  @default(false) @map("is_revoked")
-  userAgent   String?  @map("user_agent") @db.VarChar(500)
-  ipAddress   String?  @map("ip_address") @db.VarChar(45)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id            String        @id @default(uuid()) @db.Uuid
+  userId        String        @map("user_id") @db.Uuid
+  token         String        @unique @db.VarChar(500)
+  family        String        @default(uuid()) @db.VarChar(36)
+  expiresAt     DateTime      @map("expires_at") @db.Timestamptz
+  isRevoked     Boolean       @default(false) @map("is_revoked")
+  revokedReason RevokeReason? @map("revoked_reason")
+  revokedAt     DateTime?     @map("revoked_at") @db.Timestamptz
+  userAgent     String?       @map("user_agent") @db.VarChar(500)
+  ipAddress     String?       @map("ip_address") @db.VarChar(45)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

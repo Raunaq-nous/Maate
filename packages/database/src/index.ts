@@ -50,5 +50,6 @@ export {
   MfaType,
   RelationshipType,
   AccessLevel,
+  RevokeReason,
 } from './generated/client/index.js';
 

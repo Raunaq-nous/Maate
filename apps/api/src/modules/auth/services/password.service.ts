@@ -9,6 +9,7 @@ import { randomBytes, createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 
 import { PrismaService } from '../../../common/database/database.module';
+import { RevokeReason } from '@maate/database';
 
 @Injectable()
 export class PasswordService {
@@ -143,7 +144,11 @@ export class PasswordService {
       // Revoke all refresh tokens on password change
       this.prisma.refreshToken.updateMany({
         where: { userId: reset.userId, isRevoked: false },
-        data: { isRevoked: true },
+        data: {
+          isRevoked: true,
+          revokedReason: RevokeReason.LOGOUT,
+          revokedAt: new Date(),
+        },
       }),
     ]);
 
@@ -176,7 +181,11 @@ export class PasswordService {
       // Revoke all refresh tokens except current session
       this.prisma.refreshToken.updateMany({
         where: { userId, isRevoked: false },
-        data: { isRevoked: true },
+        data: {
+          isRevoked: true,
+          revokedReason: RevokeReason.LOGOUT,
+          revokedAt: new Date(),
+        },
       }),
     ]);
   }
