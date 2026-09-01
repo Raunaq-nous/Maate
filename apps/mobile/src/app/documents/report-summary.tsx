@@ -29,6 +29,7 @@ interface AiSummaryData {
   risk_flags: string[];
   recommendations: string[];
   citations: string[];
+  is_mock?: boolean;
 }
 
 export default function ReportSummaryScreen() {
@@ -44,7 +45,34 @@ export default function ReportSummaryScreen() {
     try {
       setLoading(true);
       const { data } = await apiClient.get(`/documents/${docId}/summary`);
-      setSummary(data.data);
+      const raw = data.data;
+      if (!raw) {
+        setSummary(null);
+        return;
+      }
+
+      setSummary({
+        layperson_summary:
+          raw.layperson_summary || raw.laypersonSummary || raw.summary_text || raw.summaryText || '',
+        clinical_summary: raw.clinical_summary || raw.summary_text || raw.summaryText || '',
+        key_findings: (raw.key_findings || raw.keyFindings || []).map((f: any) => ({
+          parameter: f.parameter || 'Unknown',
+          value: String(f.value ?? ''),
+          unit: f.unit || '',
+          reference_range: f.reference_range || f.referenceRange || '',
+          is_abnormal: Boolean(
+            f.is_abnormal || f.status === 'high' || f.status === 'low' || f.status === 'critical',
+          ),
+          interpretation: f.interpretation || f.note || '',
+          trend: f.trend,
+        })),
+        risk_flags: (raw.risk_flags || raw.riskFlags || []).map((r: any) =>
+          typeof r === 'string' ? r : r.recommendation || r.parameter || JSON.stringify(r),
+        ),
+        recommendations: raw.recommendations || [],
+        citations: raw.citations || [],
+        is_mock: Boolean(raw.is_mock || raw.isMock),
+      });
     } catch (err) {
       console.error('Failed to fetch summary', err);
     } finally {

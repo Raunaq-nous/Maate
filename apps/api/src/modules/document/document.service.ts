@@ -88,7 +88,7 @@ export class DocumentService {
       return doc;
     });
 
-    // 3. Enqueue for BullMQ async processing (Virus Scan -> OCR)
+    // 3. Enqueue for BullMQ async processing (Virus Scan -> OCR -> AI Summary)
     await this.processing.enqueue({
       documentId: result.id,
       userId,
@@ -96,7 +96,7 @@ export class DocumentService {
       contentType: metadata.contentType,
       fileName: result.title || 'unknown',
       documentType: dto.documentType,
-      pipeline: ['virus_scan', 'ocr'],
+      pipeline: ['virus_scan', 'ocr', 'ai_summary'],
     });
 
     this.logger.log(`Document upload confirmed: ${result.id} for user ${userId}`);
@@ -113,27 +113,22 @@ export class DocumentService {
     const limit = Math.min(Number(query['limit']) || 20, 50);
     const skip = (page - 1) * limit;
 
-    const [documents, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       this.prisma.document.findMany({
-        where: { userId, isArchived: false },
-        include: { aiSummary: true },
-        orderBy: { documentDate: 'desc' },
+        where: { userId, isArchived: false, deletedAt: null },
         skip,
         take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { ocrResult: true, aiSummary: true },
       }),
-      this.prisma.document.count({ where: { userId, isArchived: false } }),
+      this.prisma.document.count({
+        where: { userId, isArchived: false, deletedAt: null },
+      }),
     ]);
 
     return {
-      data: documents,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-        hasNext: page * limit < total,
-        hasPrev: page > 1,
-      },
+      data: items,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
@@ -147,15 +142,35 @@ export class DocumentService {
   }
 
   async getOcrResult(documentId: string) {
-    const result = await this.prisma.ocrResult.findUnique({ where: { documentId } });
-    if (!result) throw new NotFoundException('OCR result not found');
-    return { data: result };
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      include: { ocrResult: true },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    if (!doc.ocrResult) {
+      return {
+        data: null,
+        status: doc.ocrStatus,
+        message: `OCR status is ${doc.ocrStatus}`,
+      };
+    }
+    return { data: doc.ocrResult, status: doc.ocrStatus };
   }
 
   async getAiSummary(documentId: string) {
-    const summary = await this.prisma.aiSummary.findUnique({ where: { documentId } });
-    if (!summary) throw new NotFoundException('AI summary not found');
-    return { data: summary };
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      include: { aiSummary: true },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    if (!doc.aiSummary) {
+      return {
+        data: null,
+        status: doc.aiSummaryStatus,
+        message: `AI summary status is ${doc.aiSummaryStatus}`,
+      };
+    }
+    return { data: doc.aiSummary, status: doc.aiSummaryStatus };
   }
 
   async archive(userId: string, id: string) {

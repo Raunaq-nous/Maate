@@ -167,8 +167,12 @@ export class DocumentProcessor {
     this.logger.log(`AI summary triggered: doc=${data.documentId}`);
     try {
       const ocr = await this.prisma.ocrResult.findUnique({ where: { documentId: data.documentId } });
-      if (!ocr) {
-        this.logger.warn(`OCR result missing for doc=${data.documentId}, skipping summary`);
+      if (!ocr || (!ocr.rawText && !ocr.structuredData)) {
+        this.logger.error(`OCR result missing or empty for doc=${data.documentId}, cannot generate summary`);
+        await this.prisma.document.update({
+          where: { id: data.documentId },
+          data: { aiSummaryStatus: 'FAILED' },
+        });
         return;
       }
 
@@ -177,51 +181,126 @@ export class DocumentProcessor {
         data: { aiSummaryStatus: 'PROCESSING' },
       });
 
+      const normalizedDocType = (data.documentType || 'LAB_REPORT').toLowerCase();
+
+      this.logger.debug(
+        `Calling AI Service at ${this.aiServiceUrl}/api/v1/ai/summarize (docType=${normalizedDocType})`,
+      );
+
       const response = await firstValueFrom(
         this.http.post<any>(
           `${this.aiServiceUrl}/api/v1/ai/summarize`,
           {
             document_id: data.documentId,
-            document_type: data.contentType,
+            document_type: normalizedDocType,
             structured_data: ocr.structuredData,
+            raw_text: ocr.rawText,
           },
-          { timeout: 15000 },
+          { timeout: 30000 },
         ),
       );
 
       const summaryData = response.data?.data;
-      if (summaryData) {
-        await this.prisma.aiSummary.upsert({
-          where: { documentId: data.documentId },
-          create: {
-            documentId: data.documentId,
-            summaryText: summaryData.summary_text || '',
-            laypersonSummary: summaryData.summary_text || '',
-            keyFindings: summaryData.key_findings || [],
-            riskFlags: summaryData.risk_flags || [],
-            recommendations: summaryData.recommendations || [],
-            modelUsed: summaryData.model_used || 'gpt-4o',
-          },
-          update: {
-            summaryText: summaryData.summary_text || '',
-            laypersonSummary: summaryData.summary_text || '',
-            keyFindings: summaryData.key_findings || [],
-            riskFlags: summaryData.risk_flags || [],
-            recommendations: summaryData.recommendations || [],
-          },
-        });
-
-        await this.prisma.document.update({
-          where: { id: data.documentId },
-          data: { aiSummaryStatus: 'COMPLETED' },
-        });
+      if (!summaryData) {
+        throw new Error('Malformed response from AI service: missing data field');
       }
+
+      await this.prisma.aiSummary.upsert({
+        where: { documentId: data.documentId },
+        create: {
+          documentId: data.documentId,
+          summaryText: summaryData.summary_text || '',
+          laypersonSummary: summaryData.layperson_summary || summaryData.summary_text || '',
+          keyFindings: summaryData.key_findings || [],
+          riskFlags: summaryData.risk_flags || [],
+          recommendations: summaryData.recommendations || [],
+          modelUsed: summaryData.model_used || 'mock-engine',
+          modelVersion: summaryData.model_version || '1.0',
+          isMock: Boolean(summaryData.is_mock),
+          promptTokens: summaryData.prompt_tokens,
+          completionTokens: summaryData.completion_tokens,
+        },
+        update: {
+          summaryText: summaryData.summary_text || '',
+          laypersonSummary: summaryData.layperson_summary || summaryData.summary_text || '',
+          keyFindings: summaryData.key_findings || [],
+          riskFlags: summaryData.risk_flags || [],
+          recommendations: summaryData.recommendations || [],
+          modelUsed: summaryData.model_used || 'mock-engine',
+          modelVersion: summaryData.model_version || '1.0',
+          isMock: Boolean(summaryData.is_mock),
+          promptTokens: summaryData.prompt_tokens,
+          completionTokens: summaryData.completion_tokens,
+        },
+      });
+
+      // Populate DocumentChunks for future RAG (Phase 4 / Phase 8)
+      await this.createDocumentChunks(data.documentId, ocr.rawText || '', normalizedDocType);
+
+      await this.prisma.document.update({
+        where: { id: data.documentId },
+        data: { aiSummaryStatus: 'COMPLETED' },
+      });
+
+      this.logger.log(
+        `AI summary completed: doc=${data.documentId} (isMock=${Boolean(summaryData.is_mock)}, model=${summaryData.model_used})`,
+      );
     } catch (err: any) {
-      this.logger.warn(`AI summary unavailable for doc=${data.documentId} (Phase 4 feature): ${err?.message || err}`);
+      this.logger.error(`AI summary failed for doc=${data.documentId}: ${err?.message || err}`);
       await this.prisma.document.update({
         where: { id: data.documentId },
         data: { aiSummaryStatus: 'FAILED' },
       });
+    }
+  }
+
+  // ─── Document Chunking (Phase 4 scope) ─────
+  private async createDocumentChunks(
+    documentId: string,
+    rawText: string,
+    documentType: string,
+  ): Promise<void> {
+    if (!rawText || rawText.trim().length === 0) return;
+
+    try {
+      // Remove any prior chunks for this document for idempotency
+      await this.prisma.documentChunk.deleteMany({ where: { documentId } });
+
+      const chunkSize = 400;
+      const overlap = 50;
+      const chunks: { content: string; charStart: number; charEnd: number }[] = [];
+
+      let start = 0;
+      while (start < rawText.length) {
+        const end = Math.min(start + chunkSize, rawText.length);
+        const chunkText = rawText.slice(start, end).trim();
+        if (chunkText.length > 0) {
+          chunks.push({ content: chunkText, charStart: start, charEnd: end });
+        }
+        if (end >= rawText.length) break;
+        start += chunkSize - overlap;
+      }
+
+      for (const [i, chunk] of chunks.entries()) {
+        await this.prisma.documentChunk.create({
+          data: {
+            documentId,
+            content: chunk.content,
+            metadata: {
+              chunkIndex: i,
+              charStart: chunk.charStart,
+              charEnd: chunk.charEnd,
+              documentType,
+              tokenCount: Math.ceil(chunk.content.length / 4),
+              embedding_status: 'pending_provider',
+            },
+          },
+        });
+      }
+
+      this.logger.log(`Created ${chunks.length} document chunks for doc=${documentId}`);
+    } catch (err: any) {
+      this.logger.warn(`Failed to store document chunks for doc=${documentId}: ${err?.message || err}`);
     }
   }
 }

@@ -40,7 +40,8 @@ app.add_middleware(
 class SummarizeRequest(BaseModel):
     document_id: str
     document_type: str
-    structured_data: dict
+    structured_data: dict | None = None
+    raw_text: str | None = None
     user_locale: str = "en-IN"
 
 
@@ -62,8 +63,12 @@ async def summarize_document(request: SummarizeRequest):
     """Generate AI summary of a medical document."""
     try:
         engine = SummarizerEngine()
+        payload = request.structured_data or {}
+        if request.raw_text and not payload.get("tests"):
+            payload["raw_text"] = request.raw_text
+
         result = await engine.summarize(
-            structured_data=request.structured_data,
+            structured_data=payload,
             document_type=request.document_type,
             locale=request.user_locale,
         )

@@ -463,6 +463,7 @@ model AiSummary {
   completionTokens Int?     @map("completion_tokens")
   costUsd          Float?   @map("cost_usd")
   latencyMs        Int?     @map("latency_ms")
+  isMock           Boolean  @default(false) @map("is_mock")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
