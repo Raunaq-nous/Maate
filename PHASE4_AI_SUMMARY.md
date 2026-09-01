@@ -219,6 +219,79 @@ Per `docs/PRD_Part3_AI_Compliance_Deployment.md` (Sections 9.3 & 9.4):
   }
   ```
 
+### Test 5: OCR Preprocessing Fix & Decimal Point Recovery (Fix #1)
+- **Problem Investigated**: OCR was dropping decimal points on numeric lab values (`14.2` -> `142`, `0.9` -> `09`), causing downstream clinical false alarms.
+- **Root Cause**: Tesseract's LSTM neural net requires an optimal character height of 30–33 pixels (approx 300 DPI). At lower resolution (72–100 DPI), small decimal points are only 1–2 pixels in size and are discarded by Tesseract's internal morphological noise filters as speckle noise. Furthermore, `ImagePreprocessor._process_image()` had been an empty stub returning raw bytes without scaling, contrast normalization, or DPI metadata.
+- **Fix Implemented**:
+  1. `services/ocr-service/app/pipeline/preprocessor.py`: Implemented Pillow preprocessing that flattens alpha to solid white, converts to grayscale, applies dynamic range autocontrast, and performs smart Lanczos upscaling for lower-resolution scans (< 2000px wide) with 300 DPI output metadata.
+  2. `services/ocr-service/app/pipeline/ocr_engine.py`: Configured Tesseract with `--dpi 300`.
+- **Live Output (`POST /documents/confirm-upload` -> OCR -> AI Summary)**:
+  - **Extracted Tests**:
+    ```json
+    {
+      "tests": [
+        {"parameter": "Glucose", "value": "95", "unit": "mg/dL"},
+        {"parameter": "Hemoglobin", "value": "14.2", "unit": "g/dL"},
+        {"parameter": "Creatinine", "value": "0.9", "unit": "mg/dL"}
+      ]
+    }
+    ```
+  - **AI Clinical Summary**:
+    - Status: All 3 tests correctly identified as `normal`.
+    - Risk Flags: `[]` (zero false critical alarms).
+    - Layperson Summary: *"Your recent lab test numbers look normal: blood sugar is 95, hemoglobin is 14.2, and kidney function (creatinine) is 0.9. No abnormal findings were identified in these results."*
+
+### Test 6: Physiological Plausibility Safety Net (Fix #2)
+- **Problem Addressed**: Protecting patient safety against ANY potential OCR artifact or garbled scan data, ensuring the system never issues alarming critical claims based on formatting or scanning anomalies.
+- **Fix Implemented**:
+  1. In `services/ai-service/app/summarizer/engine.py`, updated `SYSTEM_PROMPT` with mandatory physiological bounds for common lab markers (`Hemoglobin` [3.0–25.0 g/dL], `Creatinine` [0.2–20.0 mg/dL], `Glucose` [30–1000 mg/dL], `HbA1c` [3.5–20.0%], `Cholesterol` [50–800 mg/dL]).
+  2. Implemented programmatic safety filter `_apply_plausibility_safety_net()` in Python to catch out-of-bounds numbers and leading-zero integer artifacts (e.g. `'09'`).
+  3. When an anomaly is detected, status is strictly set to `needs_verification`, alarming `critical` risk flags are demoted, and the patient is informed that the value appears inconsistent with expected human ranges and should be verified against the physical paper.
+- **Live Output with Deliberate Decimal Loss (`Hemoglobin 142 g/dL`, `Creatinine 09 mg/dL`)**:
+  - **Key Findings**:
+    ```json
+    [
+      {
+        "parameter": "Glucose",
+        "value": "95",
+        "unit": "mg/dL",
+        "status": "normal",
+        "note": "Glucose level is within normal range."
+      },
+      {
+        "parameter": "Hemoglobin",
+        "value": "142",
+        "unit": "g/dL",
+        "status": "needs_verification",
+        "note": "This value (142 g/dL) appears inconsistent with expected human ranges for Hemoglobin and is likely an OCR extraction artifact (e.g. missing decimal point). Please verify against your original physical report."
+      },
+      {
+        "parameter": "Creatinine",
+        "value": "09",
+        "unit": "mg/dL",
+        "status": "needs_verification",
+        "note": "This value (09 mg/dL) appears inconsistent with expected human ranges for Creatinine and is likely an OCR extraction artifact (e.g. missing decimal point). Please verify against your original physical report."
+      }
+    ]
+    ```
+  - **Risk Flags**:
+    ```json
+    [
+      {
+        "parameter": "Hemoglobin",
+        "severity": "needs_verification",
+        "recommendation": "Verify the Hemoglobin value against your physical report or with your healthcare provider."
+      },
+      {
+        "parameter": "Creatinine",
+        "severity": "needs_verification",
+        "recommendation": "Verify the Creatinine value against your physical report or with your healthcare provider."
+      }
+    ]
+    ```
+  - **Layperson Summary**:
+    > *"Your glucose test looks normal. The numbers shown for hemoglobin and creatinine seem unusually high or oddly formatted, which often happens when a document is scanned. Please check these two results with your doctor or the original lab paper."*
+
 ---
 
 ## 6. Known Gaps & Future Work

@@ -39,15 +39,15 @@ class OCREngine:
         try:
             image = Image.open(io.BytesIO(image_data))
             
-            # Get detailed OCR data including confidence
-            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            # Get detailed OCR data including confidence with 300 DPI assumption
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT, config="--dpi 300")
             
             # Filter out empty strings and calculate mean confidence
             confidences = [int(conf) for conf in data['conf'] if conf != -1]
             avg_confidence = sum(confidences) / len(confidences) / 100.0 if confidences else 0.0
             
             # Extract full text
-            text = pytesseract.image_to_string(image)
+            text = pytesseract.image_to_string(image, config="--dpi 300")
             
             return text.strip(), avg_confidence
         except Exception as e:
