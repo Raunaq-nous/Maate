@@ -3,7 +3,7 @@
 // APIs for responding to reminders
 // ============================================
 
-import { Controller, Post, Body, Param, Patch, Get, Delete, Query, HttpStatus, HttpCode } from '@nestjs/common';
+import { Controller, Post, Put, Body, Param, Patch, Get, Delete, Query, HttpStatus, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
 import { PrismaService } from '../../common/database/database.module';
@@ -34,6 +34,10 @@ class CreateMedicineReminderDto {
   @IsString({ each: true })
   timesOfDay!: string[];
 
+  @IsArray()
+  @IsOptional()
+  daysOfWeek?: number[];
+
   @IsEnum(MealRelation)
   @IsOptional()
   mealRelation?: MealRelation;
@@ -41,6 +45,41 @@ class CreateMedicineReminderDto {
   @IsString()
   @IsOptional()
   instructions?: string;
+}
+
+class UpdateMedicineReminderDto {
+  @IsString()
+  @IsOptional()
+  medicineName?: string;
+
+  @IsString()
+  @IsOptional()
+  dosage?: string;
+
+  @IsEnum(ReminderFrequency)
+  @IsOptional()
+  frequency?: ReminderFrequency;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  timesOfDay?: string[];
+
+  @IsArray()
+  @IsOptional()
+  daysOfWeek?: number[];
+
+  @IsEnum(MealRelation)
+  @IsOptional()
+  mealRelation?: MealRelation;
+
+  @IsString()
+  @IsOptional()
+  instructions?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 }
 
 class UpsertWaterReminderDto {
@@ -73,6 +112,24 @@ class CreateMealReminderDto {
   @IsString()
   @IsOptional()
   dietaryNotes?: string;
+}
+
+class UpdateMealReminderDto {
+  @IsEnum(MealType)
+  @IsOptional()
+  mealType?: MealType;
+
+  @IsString()
+  @IsOptional()
+  scheduledTime?: string;
+
+  @IsString()
+  @IsOptional()
+  dietaryNotes?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 }
 
 @ApiTags('reminders')
@@ -174,12 +231,122 @@ export class ReminderController {
         dosage: dto.dosage,
         frequency: dto.frequency,
         timesOfDay: dto.timesOfDay,
+        daysOfWeek: dto.daysOfWeek || [1, 2, 3, 4, 5, 6, 7],
         mealRelation: dto.mealRelation || 'ANY',
         startDate: new Date(),
         instructions: dto.instructions,
       },
     });
     return { data: reminder };
+  }
+
+  @Put('medicine/:id')
+  @ApiOperation({ summary: 'Update an existing medicine reminder' })
+  async updateMedicineReminder(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMedicineReminderDto,
+  ) {
+    const reminder = await this.prisma.medicineReminder.findFirst({
+      where: { id, userId, deletedAt: null },
+    });
+    if (!reminder) {
+      return { success: false, message: 'Medicine reminder not found' };
+    }
+    const updated = await this.prisma.medicineReminder.update({
+      where: { id },
+      data: {
+        ...(dto.medicineName && { medicineName: dto.medicineName }),
+        ...(dto.dosage !== undefined && { dosage: dto.dosage }),
+        ...(dto.frequency && { frequency: dto.frequency }),
+        ...(dto.timesOfDay && { timesOfDay: dto.timesOfDay }),
+        ...(dto.daysOfWeek && { daysOfWeek: dto.daysOfWeek }),
+        ...(dto.mealRelation && { mealRelation: dto.mealRelation }),
+        ...(dto.instructions !== undefined && { instructions: dto.instructions }),
+        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+      },
+    });
+    return { success: true, data: updated };
+  }
+
+  @Put('meal/:id')
+  @ApiOperation({ summary: 'Update an existing meal reminder' })
+  async updateMealReminder(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMealReminderDto,
+  ) {
+    const meal = await this.prisma.mealReminder.findFirst({
+      where: { id, userId },
+    });
+    if (!meal) {
+      return { success: false, message: 'Meal reminder not found' };
+    }
+    const updated = await this.prisma.mealReminder.update({
+      where: { id },
+      data: {
+        ...(dto.mealType && { mealType: dto.mealType }),
+        ...(dto.scheduledTime && { scheduledTime: dto.scheduledTime }),
+        ...(dto.dietaryNotes !== undefined && { dietaryNotes: dto.dietaryNotes }),
+        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+      },
+    });
+    return { success: true, data: updated };
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Update a reminder (medicine fallback)' })
+  async updateReminderFallback(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMedicineReminderDto,
+  ) {
+    return this.updateMedicineReminder(userId, id, dto);
+  }
+
+  @Get('history')
+  @ApiOperation({ summary: 'Get reminder adherence logs history with filters' })
+  async getAdherenceHistory(
+    @CurrentUser('sub') userId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('reminderId') reminderId?: string,
+    @Query('reminderType') reminderType?: ReminderType,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    const where: any = { userId };
+
+    if (reminderId) where.reminderId = reminderId;
+    if (reminderType) where.reminderType = reminderType;
+
+    if (startDate || endDate) {
+      where.scheduledAt = {};
+      if (startDate) where.scheduledAt.gte = new Date(startDate);
+      if (endDate) where.scheduledAt.lte = new Date(endDate);
+    }
+
+    const take = limit ? Math.min(Math.max(1, parseInt(limit, 10)), 100) : 50;
+    const skip = offset ? Math.max(0, parseInt(offset, 10)) : 0;
+
+    const [logs, total] = await Promise.all([
+      this.prisma.reminderLog.findMany({
+        where,
+        orderBy: { scheduledAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.reminderLog.count({ where }),
+    ]);
+
+    return {
+      data: logs,
+      meta: {
+        total,
+        limit: take,
+        offset: skip,
+      },
+    };
   }
 
   @Post('water')
