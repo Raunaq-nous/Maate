@@ -3,12 +3,38 @@
 // APIs for responding to reminders
 // ============================================
 
-import { Controller, Post, Put, Body, Param, Patch, Get, Delete, Query, HttpStatus, HttpCode } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Put,
+  Body,
+  Param,
+  Patch,
+  Get,
+  Delete,
+  Query,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
 import { PrismaService } from '../../common/database/database.module';
-import { ReminderResponse, ReminderFrequency, MealRelation, MealType, ReminderType } from '@maate/database';
-import { IsEnum, IsOptional, IsString, IsArray, IsNumber, IsBoolean } from 'class-validator';
+import { TimelineService } from '../timeline/timeline.service';
+import {
+  ReminderResponse,
+  ReminderFrequency,
+  MealRelation,
+  MealType,
+  ReminderType,
+  TimelineEventType,
+  Severity,
+} from '@maate/database';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsArray,
+  IsNumber,
+  IsBoolean,
+} from 'class-validator';
 
 class RespondToReminderDto {
   @IsEnum(ReminderResponse)
@@ -96,10 +122,12 @@ class UpsertWaterReminderDto {
   activeEnd!: string;
 
   @IsNumber()
-  glassSizeMl!: number;
+  @IsOptional()
+  glassSizeMl?: number;
 
   @IsBoolean()
-  isActive!: boolean;
+  @IsOptional()
+  isActive?: boolean;
 }
 
 class CreateMealReminderDto {
@@ -136,7 +164,10 @@ class UpdateMealReminderDto {
 @ApiBearerAuth()
 @Controller({ path: 'reminders', version: '1' })
 export class ReminderController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly timelineService: TimelineService,
+  ) {}
 
   @Get('active')
   @ApiOperation({ summary: 'Get all active reminders for the user' })
@@ -147,7 +178,9 @@ export class ReminderController {
     endOfToday.setHours(23, 59, 59, 999);
 
     const [meds, water, meals, logs] = await Promise.all([
-      this.prisma.medicineReminder.findMany({ where: { userId, isActive: true, deletedAt: null } }),
+      this.prisma.medicineReminder.findMany({
+        where: { userId, isActive: true, deletedAt: null },
+      }),
       this.prisma.waterReminder.findUnique({ where: { userId } }),
       this.prisma.mealReminder.findMany({ where: { userId, isActive: true } }),
       this.prisma.reminderLog.findMany({
@@ -164,7 +197,9 @@ export class ReminderController {
   }
 
   @Post(':type/:id/log')
-  @ApiOperation({ summary: 'Log a response to a reminder by reminder configuration ID' })
+  @ApiOperation({
+    summary: 'Log a response to a reminder by reminder configuration ID',
+  })
   async logResponseForReminder(
     @CurrentUser('sub') userId: string,
     @Param('type') type: string,
@@ -172,13 +207,13 @@ export class ReminderController {
     @Body() dto: RespondToReminderDto,
   ) {
     const reminderType = type.toUpperCase() as ReminderType;
-    
+
     // Create or update log for today
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
-    
+
     const existingLog = await this.prisma.reminderLog.findFirst({
       where: {
         userId,
@@ -191,8 +226,9 @@ export class ReminderController {
       },
     });
 
+    let logId: string;
     if (existingLog) {
-      await this.prisma.reminderLog.update({
+      const updated = await this.prisma.reminderLog.update({
         where: { id: existingLog.id },
         data: {
           response: dto.response,
@@ -200,9 +236,9 @@ export class ReminderController {
           notes: dto.notes,
         },
       });
-      return { success: true, message: 'Response updated' };
+      logId = updated.id;
     } else {
-      await this.prisma.reminderLog.create({
+      const created = await this.prisma.reminderLog.create({
         data: {
           userId,
           reminderId: id,
@@ -214,8 +250,78 @@ export class ReminderController {
           notes: dto.notes,
         },
       });
-      return { success: true, message: 'Response recorded' };
+      logId = created.id;
     }
+
+    // Record TimelineEvent for Medicine & Meals (avoid water spam)
+    if (reminderType === ReminderType.MEDICINE) {
+      const med = await this.prisma.medicineReminder.findUnique({
+        where: { id },
+      });
+      const medName = med?.medicineName || 'Medication';
+
+      if (dto.response === ReminderResponse.TAKEN) {
+        await this.timelineService.recordEvent({
+          userId,
+          type: TimelineEventType.MEDICATION_STARTED,
+          title: `Dose Taken: ${medName}`,
+          description: `Scheduled dose confirmed taken. ${dto.notes || ''}`.trim(),
+          severity: Severity.MILD,
+          refResourceType: 'ReminderLog',
+          refResourceId: logId,
+          occurredAt: new Date(),
+          metadata: {
+            reminderId: id,
+            medicineName: medName,
+            response: dto.response,
+            notes: dto.notes,
+          },
+        });
+      } else if (dto.response === ReminderResponse.SKIPPED) {
+        await this.timelineService.recordEvent({
+          userId,
+          type: TimelineEventType.MEDICATION_STOPPED,
+          title: `Dose Skipped: ${medName}`,
+          description: `Dose skipped by user. Reason: ${dto.notes || 'None specified'}`,
+          severity: Severity.MODERATE,
+          refResourceType: 'ReminderLog',
+          refResourceId: logId,
+          occurredAt: new Date(),
+          metadata: {
+            reminderId: id,
+            medicineName: medName,
+            response: dto.response,
+            notes: dto.notes,
+          },
+        });
+      }
+    } else if (reminderType === ReminderType.MEAL) {
+      const meal = await this.prisma.mealReminder.findUnique({
+        where: { id },
+      });
+      if (dto.response === ReminderResponse.TAKEN) {
+        await this.timelineService.recordEvent({
+          userId,
+          type: TimelineEventType.MILESTONE,
+          title: `Meal Completed: ${meal?.mealType || 'Meal'}`,
+          description: `Meal completed on schedule. ${dto.notes || ''}`.trim(),
+          severity: Severity.MILD,
+          refResourceType: 'ReminderLog',
+          refResourceId: logId,
+          occurredAt: new Date(),
+          metadata: {
+            reminderId: id,
+            mealType: meal?.mealType,
+            response: dto.response,
+          },
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: existingLog ? 'Response updated' : 'Response recorded',
+    };
   }
 
   @Post()
@@ -237,6 +343,25 @@ export class ReminderController {
         instructions: dto.instructions,
       },
     });
+
+    // Auto-record TimelineEvent for new medication schedule
+    await this.timelineService.recordEvent({
+      userId,
+      type: TimelineEventType.MEDICATION_STARTED,
+      title: `Prescription/Medication Added: ${reminder.medicineName}`,
+      description: `${reminder.dosage || 'Prescribed dose'} (${reminder.frequency}). ${reminder.instructions || ''}`.trim(),
+      severity: Severity.MILD,
+      refResourceType: 'MedicineReminder',
+      refResourceId: reminder.id,
+      occurredAt: new Date(),
+      metadata: {
+        medicineName: reminder.medicineName,
+        dosage: reminder.dosage,
+        frequency: reminder.frequency,
+        timesOfDay: reminder.timesOfDay,
+      },
+    });
+
     return { data: reminder };
   }
 
@@ -262,7 +387,9 @@ export class ReminderController {
         ...(dto.timesOfDay && { timesOfDay: dto.timesOfDay }),
         ...(dto.daysOfWeek && { daysOfWeek: dto.daysOfWeek }),
         ...(dto.mealRelation && { mealRelation: dto.mealRelation }),
-        ...(dto.instructions !== undefined && { instructions: dto.instructions }),
+        ...(dto.instructions !== undefined && {
+          instructions: dto.instructions,
+        }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       },
     });
@@ -287,7 +414,9 @@ export class ReminderController {
       data: {
         ...(dto.mealType && { mealType: dto.mealType }),
         ...(dto.scheduledTime && { scheduledTime: dto.scheduledTime }),
-        ...(dto.dietaryNotes !== undefined && { dietaryNotes: dto.dietaryNotes }),
+        ...(dto.dietaryNotes !== undefined && {
+          dietaryNotes: dto.dietaryNotes,
+        }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       },
     });
@@ -305,7 +434,9 @@ export class ReminderController {
   }
 
   @Get('history')
-  @ApiOperation({ summary: 'Get reminder adherence logs history with filters' })
+  @ApiOperation({
+    summary: 'Get reminder adherence logs history with filters',
+  })
   async getAdherenceHistory(
     @CurrentUser('sub') userId: string,
     @Query('startDate') startDate?: string,
@@ -422,20 +553,55 @@ export class ReminderController {
   }
 
   @Patch('logs/:id/respond')
-  @ApiOperation({ summary: 'Log a response to a reminder (Taken, Skipped, etc.)' })
+  @ApiOperation({
+    summary: 'Log a response to a reminder (Taken, Skipped, etc.)',
+  })
   async respondToReminder(
     @CurrentUser('sub') userId: string,
     @Param('id') logId: string,
     @Body() dto: RespondToReminderDto,
   ) {
-    await this.prisma.reminderLog.updateMany({
+    const log = await this.prisma.reminderLog.findFirst({
       where: { id: logId, userId },
+    });
+    if (!log) return { success: false, message: 'Log not found' };
+
+    await this.prisma.reminderLog.update({
+      where: { id: logId },
       data: {
         response: dto.response,
         respondedAt: new Date(),
         notes: dto.notes,
       },
     });
+
+    // Record TimelineEvent if medicine or meal
+    if (log.reminderType === ReminderType.MEDICINE) {
+      const med = await this.prisma.medicineReminder.findUnique({
+        where: { id: log.reminderId },
+      });
+      const medName = med?.medicineName || 'Medication';
+      await this.timelineService.recordEvent({
+        userId,
+        type:
+          dto.response === 'TAKEN'
+            ? TimelineEventType.MEDICATION_STARTED
+            : TimelineEventType.MEDICATION_STOPPED,
+        title:
+          dto.response === 'TAKEN'
+            ? `Dose Taken: ${medName}`
+            : `Dose Skipped: ${medName}`,
+        description:
+          dto.response === 'TAKEN'
+            ? `Confirmed taken. ${dto.notes || ''}`.trim()
+            : `Skipped by user. ${dto.notes || ''}`.trim(),
+        severity:
+          dto.response === 'TAKEN' ? Severity.MILD : Severity.MODERATE,
+        refResourceType: 'ReminderLog',
+        refResourceId: logId,
+        occurredAt: new Date(),
+      });
+    }
 
     return { message: 'Response recorded', success: true };
   }
@@ -478,4 +644,3 @@ export class ReminderController {
     };
   }
 }
-

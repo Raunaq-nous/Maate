@@ -145,6 +145,62 @@ export class TimelineService {
   }
 
   /**
+   * Retrieves aggregated timeline statistics and highlights.
+   */
+  async getSummary(userId: string) {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [total, recentEvents, criticalFlags, lastEvent, byTypeGroup] =
+      await Promise.all([
+        this.prisma.timelineEvent.count({
+          where: { userId, isHidden: false },
+        }),
+        this.prisma.timelineEvent.count({
+          where: {
+            userId,
+            isHidden: false,
+            occurredAt: { gte: thirtyDaysAgo },
+          },
+        }),
+        this.prisma.timelineEvent.count({
+          where: {
+            userId,
+            isHidden: false,
+            severity: { in: [Severity.CRITICAL, Severity.SEVERE] },
+          },
+        }),
+        this.prisma.timelineEvent.findFirst({
+          where: { userId, isHidden: false },
+          orderBy: { occurredAt: 'desc' },
+        }),
+        this.prisma.timelineEvent.groupBy({
+          by: ['eventType'],
+          where: { userId, isHidden: false },
+          _count: { id: true },
+        }),
+      ]);
+
+    const byType = byTypeGroup.reduce(
+      (acc, curr) => {
+        acc[curr.eventType] = curr._count.id;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    return {
+      data: {
+        total,
+        recentEvents,
+        criticalFlags,
+        lastUpdate: lastEvent?.occurredAt || null,
+        byType,
+      },
+    };
+  }
+
+  /**
    * One-time or background job to sync the timeline from legacy/raw tables.
    * Useful for initial migration or consistency checks.
    */
@@ -172,3 +228,4 @@ export class TimelineService {
     // ... similar logic
   }
 }
+

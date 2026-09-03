@@ -18,7 +18,8 @@ import {
   Search,
   Plus,
   Users,
-  LogOut
+  LogOut,
+  Clock
 } from "lucide-react";
 import { useAuthStore } from "@/store/use-auth-store";
 import { useRouter } from "next/navigation";
@@ -28,6 +29,7 @@ import { ProfileSwitcher } from "@/components/dashboard/profile-switcher";
 
 const navItems = [
   { name: "Home", href: "/dashboard", icon: Home },
+  { name: "Timeline", href: "/timeline", icon: Clock },
   { name: "Records", href: "/records", icon: FileText },
   { name: "AI Chat", href: "/chat", icon: MessageSquare },
   { name: "Reminders", href: "/reminders", icon: Calendar },

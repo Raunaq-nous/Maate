@@ -40,13 +40,6 @@ export class TimelineController {
   @Get('summary')
   @ApiOperation({ summary: 'Get health timeline highlights' })
   async getHighlights(@CurrentUser('sub') userId: string) {
-    // Aggregated stats for the timeline (e.g. "3 new reports this month")
-    return { 
-      data: {
-        recentEvents: 5,
-        criticalFlags: 0,
-        lastUpdate: new Date()
-      }
-    };
+    return this.timelineService.getSummary(userId);
   }
 }

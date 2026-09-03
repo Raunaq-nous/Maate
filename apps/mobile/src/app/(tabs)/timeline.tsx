@@ -28,8 +28,8 @@ export default function TimelineScreen() {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchTimeline(true);
-  }, [activeFilter]);
+    fetchTimeline(true, activeFilter || undefined);
+  }, [activeFilter, fetchTimeline]);
 
   const groupedEvents = useMemo(() => {
     const groups: { date: string, events: TimelineEvent[] }[] = [];
@@ -74,7 +74,7 @@ export default function TimelineScreen() {
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={s.scroll}
         refreshControl={
-          <RefreshControl refreshing={isLoading && events.length === 0} onRefresh={() => fetchTimeline(true)} tintColor={Colors.primary[500]} />
+          <RefreshControl refreshing={isLoading && events.length === 0} onRefresh={() => fetchTimeline(true, activeFilter || undefined)} tintColor={Colors.primary[500]} />
         }
       >
         {groupedEvents.map((sec, idx) => (

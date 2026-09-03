@@ -7,6 +7,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/database/database.module';
 import { RedisService } from '../../common/redis/redis.service';
 import { subDays, subMonths, startOfDay, endOfDay, format } from 'date-fns';
+import { VitalType } from '@maate/database';
+import { QueryTrendsDto } from './dto/health.dto';
 
 export type PeriodKey = '7D' | '1M' | '3M' | '6M' | '1Y';
 
@@ -20,7 +22,7 @@ export class AnalyticsService {
   ) {}
 
   /**
-   * Main dashboard aggregator — returns every metric the mobile UI needs.
+   * Main dashboard aggregator — returns every metric the UI needs.
    */
   async getDashboard(userId: string, period: PeriodKey) {
     const cacheKey = `analytics:${userId}:${period}`;
@@ -46,13 +48,85 @@ export class AnalyticsService {
       healthScore,
     };
 
-    // Cache for 5 minutes
-    await this.redis.set(cacheKey, JSON.stringify(result), 300);
+    // Cache for 2 minutes
+    await this.redis.set(cacheKey, JSON.stringify(result), 120);
     return result;
   }
 
+  /**
+   * Returns time-series trends for charting individual vitals or parameters.
+   */
+  async getTrends(userId: string, query: QueryTrendsDto) {
+    const period = query.period || '3M';
+    const { start, end } = this.periodToDates(period);
+
+    if (query.vitalType) {
+      const readings = await this.prisma.vitalSign.findMany({
+        where: {
+          userId,
+          type: query.vitalType,
+          measuredAt: { gte: start, lte: end },
+        },
+        orderBy: { measuredAt: 'asc' },
+      });
+
+      const values = readings.map((r) => r.value);
+      const min = values.length ? Math.min(...values) : 0;
+      const max = values.length ? Math.max(...values) : 0;
+      const avg = values.length ? +(values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) : 0;
+      const latest = readings.length ? readings[readings.length - 1] : null;
+
+      return {
+        type: query.vitalType,
+        period,
+        unit: latest?.unit || '',
+        count: readings.length,
+        summary: { min, max, avg, latestValue: latest?.value ?? null },
+        dataPoints: readings.map((r) => ({
+          id: r.id,
+          date: format(r.measuredAt, 'yyyy-MM-dd'),
+          timestamp: r.measuredAt,
+          value: r.value,
+          valueSecondary: r.valueSecondary,
+          status: r.status,
+          notes: r.notes,
+        })),
+      };
+    }
+
+    if (query.parameterName) {
+      const records = await this.prisma.labParameter.findMany({
+        where: {
+          parameterName: { contains: query.parameterName, mode: 'insensitive' },
+          labReport: {
+            userId,
+            reportDate: { gte: start, lte: end },
+          },
+        },
+        include: { labReport: true },
+        orderBy: { labReport: { reportDate: 'asc' } },
+      });
+
+      return {
+        parameterName: query.parameterName,
+        period,
+        count: records.length,
+        dataPoints: records.map((r) => ({
+          date: format(r.labReport.reportDate, 'yyyy-MM-dd'),
+          value: r.value,
+          unit: r.unit,
+          referenceRange: r.referenceRange,
+          isAbnormal: r.isAbnormal,
+        })),
+      };
+    }
+
+    // Default: return all active vital signs overview
+    return this.getHealthTrends(userId, start, end);
+  }
+
   // ─── Medication Adherence ─────────────────
-  private async getMedicationAdherence(userId: string, start: Date, end: Date) {
+  async getMedicationAdherence(userId: string, start: Date, end: Date) {
     const logs = await this.prisma.reminderLog.findMany({
       where: {
         userId,
@@ -62,14 +136,14 @@ export class AnalyticsService {
     });
 
     const total = logs.length;
-    const taken = logs.filter(l => l.response === 'TAKEN').length;
-    const skipped = logs.filter(l => l.response === 'SKIPPED').length;
+    const taken = logs.filter((l) => l.response === 'TAKEN').length;
+    const skipped = logs.filter((l) => l.response === 'SKIPPED').length;
     const missed = total - taken - skipped;
     const rate = total > 0 ? Math.round((taken / total) * 100) : 100;
 
     // Daily breakdown for chart
     const dailyMap = new Map<string, { taken: number; total: number }>();
-    logs.forEach(l => {
+    logs.forEach((l) => {
       const day = format(l.scheduledAt, 'yyyy-MM-dd');
       const entry = dailyMap.get(day) || { taken: 0, total: 0 };
       entry.total += 1;
@@ -88,7 +162,7 @@ export class AnalyticsService {
   }
 
   // ─── Water Intake ─────────────────────────
-  private async getWaterIntake(userId: string, start: Date, end: Date) {
+  async getWaterIntake(userId: string, start: Date, end: Date) {
     const logs = await this.prisma.reminderLog.findMany({
       where: {
         userId,
@@ -98,10 +172,9 @@ export class AnalyticsService {
       },
     });
 
-    // Each "TAKEN" log = ~250ml glass
     const glassSize = 250;
     const dailyMap = new Map<string, number>();
-    logs.forEach(l => {
+    logs.forEach((l) => {
       const day = format(l.scheduledAt, 'yyyy-MM-dd');
       dailyMap.set(day, (dailyMap.get(day) || 0) + glassSize);
     });
@@ -123,18 +196,17 @@ export class AnalyticsService {
   }
 
   // ─── Sleep Trends ─────────────────────────
-  private async getSleepTrends(userId: string, start: Date, end: Date) {
-    // Sleep data from vitals (type=SLEEP)
+  async getSleepTrends(userId: string, start: Date, end: Date) {
     const sleepRecords = await this.prisma.vitalSign.findMany({
       where: {
         userId,
-        type: 'SLEEP_HOURS',
+        type: VitalType.SLEEP_HOURS,
         measuredAt: { gte: start, lte: end },
       },
       orderBy: { measuredAt: 'asc' },
     });
 
-    const values = sleepRecords.map(r => r.value);
+    const values = sleepRecords.map((r) => r.value);
     const avg = values.length > 0 ? +(values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) : 0;
     const best = values.length > 0 ? +Math.max(...values).toFixed(1) : 0;
     const worst = values.length > 0 ? +Math.min(...values).toFixed(1) : 0;
@@ -143,42 +215,125 @@ export class AnalyticsService {
       avgHours: avg,
       bestHours: best,
       worstHours: worst,
-      dailyChart: sleepRecords.map(r => ({
+      dailyChart: sleepRecords.map((r) => ({
         date: format(r.measuredAt, 'yyyy-MM-dd'),
         hours: r.value,
       })),
     };
   }
 
-  // ─── Abnormal Report Trends ───────────────
-  private async getHealthTrends(userId: string, start: Date, end: Date) {
-    // Aggregate lab parameters over time for key biomarkers
-    const keyParams = ['Hemoglobin', 'Blood Sugar', 'Blood Pressure Systolic', 'Cholesterol'];
+  // ─── Health & Biomarker Trends ────────────
+  async getHealthTrends(userId: string, start: Date, end: Date) {
+    const trends: any[] = [];
 
-    const trends = await Promise.all(
-      keyParams.map(async (paramName) => {
-        const records = await this.prisma.labParameter.findMany({
-          where: {
-            parameterName: { contains: paramName, mode: 'insensitive' },
-            labReport: {
-              userId,
-              reportDate: { gte: start, lte: end },
-            },
+    // 1. Vital Signs: Blood Pressure
+    const bpReadings = await this.prisma.vitalSign.findMany({
+      where: {
+        userId,
+        type: VitalType.BLOOD_PRESSURE,
+        measuredAt: { gte: start, lte: end },
+      },
+      orderBy: { measuredAt: 'asc' },
+      take: 20,
+    });
+    if (bpReadings.length > 0) {
+      const latest = bpReadings[bpReadings.length - 1]!;
+      const prev = bpReadings.length >= 2 ? bpReadings[bpReadings.length - 2] : null;
+      const diff = prev ? +(latest.value - prev.value).toFixed(1) : 0;
+      trends.push({
+        parameter: 'Blood Pressure',
+        value: `${latest.value}${latest.valueSecondary ? `/${latest.valueSecondary}` : ''}`,
+        unit: latest.unit || 'mmHg',
+        referenceRange: '120/80',
+        isAbnormal: latest.status !== 'NORMAL',
+        status: latest.status === 'NORMAL' ? 'normal' : latest.status === 'CRITICAL' || latest.status === 'HIGH' ? 'high' : 'low',
+        trend: diff > 0 ? `+${diff}` : `${diff}`,
+        trendDirection: diff > 0 ? 'UP' : diff < 0 ? 'DOWN' : 'STABLE',
+        sparkline: bpReadings.map((r) => r.value),
+      });
+    }
+
+    // 2. Vital Signs: Heart Rate
+    const hrReadings = await this.prisma.vitalSign.findMany({
+      where: {
+        userId,
+        type: VitalType.HEART_RATE,
+        measuredAt: { gte: start, lte: end },
+      },
+      orderBy: { measuredAt: 'asc' },
+      take: 20,
+    });
+    if (hrReadings.length > 0) {
+      const latest = hrReadings[hrReadings.length - 1]!;
+      const prev = hrReadings.length >= 2 ? hrReadings[hrReadings.length - 2] : null;
+      const diff = prev ? +(latest.value - prev.value).toFixed(1) : 0;
+      trends.push({
+        parameter: 'Heart Rate',
+        value: `${latest.value}`,
+        unit: latest.unit || 'bpm',
+        referenceRange: '60-100',
+        isAbnormal: latest.status !== 'NORMAL',
+        status: latest.status === 'NORMAL' ? 'normal' : latest.status === 'HIGH' ? 'high' : 'low',
+        trend: diff > 0 ? `+${diff}` : `${diff}`,
+        trendDirection: diff > 0 ? 'UP' : diff < 0 ? 'DOWN' : 'STABLE',
+        sparkline: hrReadings.map((r) => r.value),
+      });
+    }
+
+    // 3. Vital Signs: Blood Sugar
+    const sugarReadings = await this.prisma.vitalSign.findMany({
+      where: {
+        userId,
+        type: VitalType.BLOOD_SUGAR,
+        measuredAt: { gte: start, lte: end },
+      },
+      orderBy: { measuredAt: 'asc' },
+      take: 20,
+    });
+    if (sugarReadings.length > 0) {
+      const latest = sugarReadings[sugarReadings.length - 1]!;
+      const prev = sugarReadings.length >= 2 ? sugarReadings[sugarReadings.length - 2] : null;
+      const diff = prev ? +(latest.value - prev.value).toFixed(1) : 0;
+      trends.push({
+        parameter: 'Blood Sugar',
+        value: `${latest.value}`,
+        unit: latest.unit || 'mg/dL',
+        referenceRange: '70-140',
+        isAbnormal: latest.status !== 'NORMAL',
+        status: latest.status === 'NORMAL' ? 'normal' : latest.status === 'HIGH' ? 'high' : 'low',
+        trend: diff > 0 ? `+${diff}` : `${diff}`,
+        trendDirection: diff > 0 ? 'UP' : diff < 0 ? 'DOWN' : 'STABLE',
+        sparkline: sugarReadings.map((r) => r.value),
+      });
+    }
+
+    // 4. Lab Parameters from reports
+    const keyLabParams = ['Hemoglobin', 'Blood Sugar', 'Cholesterol', 'Creatinine'];
+    for (const paramName of keyLabParams) {
+      // If we already added from vitals, skip duplicate
+      if (paramName === 'Blood Sugar' && sugarReadings.length > 0) continue;
+
+      const records = await this.prisma.labParameter.findMany({
+        where: {
+          parameterName: { contains: paramName, mode: 'insensitive' },
+          labReport: {
+            userId,
+            reportDate: { gte: start, lte: end },
           },
-          include: { labReport: true },
-          orderBy: { labReport: { reportDate: 'asc' } },
-          take: 20,
-        });
+        },
+        include: { labReport: true },
+        orderBy: { labReport: { reportDate: 'asc' } },
+        take: 20,
+      });
 
-        const latest = records[records.length - 1];
+      if (records.length > 0) {
+        const latest = records[records.length - 1]!;
         const previous = records.length >= 2 ? records[records.length - 2] : null;
-        const latestVal = latest ? parseFloat(latest.value) : 0;
-        const prevVal = previous ? parseFloat(previous.value) : null;
+        const latestVal = parseFloat(latest.value) || 0;
+        const prevVal = previous ? parseFloat(previous.value) || null : null;
         const diff = prevVal !== null ? +(latestVal - prevVal).toFixed(1) : 0;
 
-        if (!latest) return null;
-
-        return {
+        trends.push({
           parameter: paramName,
           value: latest.value,
           unit: latest.unit || '',
@@ -187,43 +342,49 @@ export class AnalyticsService {
           status: latest.isAbnormal ? (diff > 0 ? 'high' : 'low') : 'normal',
           trend: diff > 0 ? `+${diff}` : `${diff}`,
           trendDirection: diff > 0 ? 'UP' : diff < 0 ? 'DOWN' : 'STABLE',
-          sparkline: records.map(r => parseFloat(r.value)),
-        };
-      })
-    );
+          sparkline: records.map((r) => parseFloat(r.value) || 0),
+        });
+      }
+    }
 
-    return trends.filter(Boolean);
+    return trends;
   }
 
   // ─── Composite Health Score ───────────────
-  private async computeHealthScore(userId: string, start: Date, end: Date) {
-    // Weighted composite score (0-100)
+  async computeHealthScore(userId: string, start: Date, end: Date) {
     const adherence = await this.getMedicationAdherence(userId, start, end);
     const adherenceScore = adherence.rate; // 0-100
 
-    // Abnormal labs penalty
-    const abnormalCount = await this.prisma.labParameter.count({
+    const abnormalLabs = await this.prisma.labParameter.count({
       where: {
         isAbnormal: true,
         labReport: { userId, reportDate: { gte: start, lte: end } },
       },
     });
-    const labScore = Math.max(0, 100 - abnormalCount * 10);
 
-    // Weights: adherence 40%, labs 40%, activity 20%
-    const score = Math.round(adherenceScore * 0.4 + labScore * 0.4 + 80 * 0.2);
+    const abnormalVitals = await this.prisma.vitalSign.count({
+      where: {
+        userId,
+        status: { in: ['HIGH', 'LOW', 'CRITICAL'] },
+        measuredAt: { gte: start, lte: end },
+      },
+    });
+
+    const penalty = abnormalLabs * 8 + abnormalVitals * 5;
+    const labScore = Math.max(0, 100 - penalty);
+
+    const score = Math.round(adherenceScore * 0.45 + labScore * 0.4 + 85 * 0.15);
 
     return {
       score: Math.min(100, Math.max(0, score)),
       breakdown: {
-        adherence: { weight: 40, value: adherenceScore },
+        adherence: { weight: 45, value: adherenceScore },
         labResults: { weight: 40, value: labScore },
-        activity: { weight: 20, value: 80 }, // Placeholder until activity tracking
+        activity: { weight: 15, value: 85 },
       },
     };
   }
 
-  // ─── Utility ──────────────────────────────
   private periodToDates(period: PeriodKey): { start: Date; end: Date } {
     const end = endOfDay(new Date());
     let start: Date;
