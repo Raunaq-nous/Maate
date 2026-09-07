@@ -1,187 +1,302 @@
 // ============================================
-// Maate Web — Caregiver Permissions
-// Secure healthcare access management
+// Maate Web — Caregiver Permissions & Shares
+// Manage authorized proxies and doctor links
 // ============================================
 
 "use client";
 
-import React from "react";
-import { 
-  ArrowLeft, 
-  ShieldCheck, 
-  Eye, 
-  Edit3, 
-  Trash2, 
-  UserPlus, 
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  ArrowLeft,
+  ShieldCheck,
+  Eye,
+  Edit3,
+  Trash2,
+  UserPlus,
   History,
   Lock,
-  Search
+  Search,
+  Stethoscope,
+  Clock,
+  CheckCircle2,
+  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { HealthCard } from "@/components/ui/health-card";
-import { VitalBadge } from "@/components/ui/vital-badge";
+import { useToast } from "@/hooks/use-toast";
+import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-const permissions = [
-  { 
-    id: "1", 
-    name: "Dr. Arvind Sharma", 
-    role: "Physician", 
-    access: "Full Access", 
-    expiry: "Never", 
-    status: "active" 
-  },
-  { 
-    id: "2", 
-    name: "Priya Singh", 
-    role: "Family Member", 
-    access: "View Only", 
-    expiry: "May 2027", 
-    status: "active" 
-  },
-  { 
-    id: "3", 
-    name: "Max Healthcare", 
-    role: "Medical Institution", 
-    access: "Limited (Reports)", 
-    expiry: "30 Days Left", 
-    status: "expiring" 
-  }
-];
+import { format, parseISO } from "date-fns";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerFooter,
+} from "@/components/ui/drawer";
 
 export default function CaregiverPermissionsPage() {
   const router = useRouter();
+  const { toast } = useToast();
+
+  const [doctorShares, setDoctorShares] = useState<any[]>([]);
+  const [ownedMembers, setOwnedMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Invite Caregiver Modal
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [caregiverEmail, setCaregiverEmail] = useState("");
+  const [accessLevel, setAccessLevel] = useState("VIEW");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchPermissions = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [sharesRes, profilesRes] = await Promise.all([
+        apiClient.get("/share/doctor"),
+        apiClient.get("/family/profiles"),
+      ]);
+
+      setDoctorShares(sharesRes.data?.data || []);
+      setOwnedMembers(profilesRes.data?.data?.owned || []);
+      if (profilesRes.data?.data?.owned?.length > 0 && !selectedMemberId) {
+        setSelectedMemberId(profilesRes.data.data.owned[0].id);
+      }
+    } catch (err) {
+      console.error("Failed to load permissions", err);
+      toast({
+        title: "Error loading permissions",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedMemberId, toast]);
+
+  useEffect(() => {
+    fetchPermissions();
+  }, [fetchPermissions]);
+
+  const handleRevokeShare = async (id: string) => {
+    try {
+      await apiClient.patch(`/share/doctor/${id}/revoke`);
+      toast({
+        title: "Doctor Share Revoked",
+        description: "The share token has been invalidated immediately.",
+      });
+      fetchPermissions();
+    } catch (err) {
+      console.error("Failed to revoke share", err);
+      toast({ title: "Error revoking share", variant: "destructive" });
+    }
+  };
+
+  const handleInviteCaregiver = async () => {
+    if (!selectedMemberId || !caregiverEmail) return;
+    try {
+      setIsSubmitting(true);
+      await apiClient.post(`/family/members/${selectedMemberId}/share`, {
+        granteeEmail: caregiverEmail,
+        level: accessLevel,
+      });
+      toast({
+        title: "Caregiver Access Granted",
+        description: `Access shared with ${caregiverEmail}.`,
+      });
+      setIsInviteOpen(false);
+      setCaregiverEmail("");
+      fetchPermissions();
+    } catch (err: any) {
+      console.error("Failed to share access", err);
+      toast({
+        title: "Error granting access",
+        description: err.response?.data?.message || "User not found or invalid email.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10 pb-20">
+    <div className="max-w-5xl mx-auto space-y-10 pb-20">
       {/* ─── Header ───────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             className="rounded-xl h-10 w-10 text-muted-foreground"
-            onClick={() => router.back()}
+            onClick={() => router.push("/family")}
           >
             <ArrowLeft size={20} />
           </Button>
           <div>
             <div className="flex items-center gap-2 mb-1">
               <ShieldCheck size={14} className="text-primary" />
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Access Management</span>
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                Access & Sharing Management
+              </span>
             </div>
-            <h1 className="text-3xl font-bold font-outfit tracking-tight">Caregiver Permissions</h1>
+            <h1 className="text-3xl font-bold font-outfit tracking-tight">
+              Caregiver & Doctor Permissions
+            </h1>
           </div>
         </div>
-        <Button className="rounded-xl h-11 px-6 bg-primary hover:bg-primary/90 text-white font-bold gap-2">
+        <Button
+          onClick={() => setIsInviteOpen(true)}
+          className="rounded-xl h-11 px-6 bg-primary hover:bg-primary/90 text-white font-bold gap-2"
+        >
           <UserPlus size={18} />
-          Invite Caregiver
+          Delegate Caregiver
         </Button>
       </div>
 
-      {/* ─── Search & Stats ───────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <HealthCard padding="md" className="flex items-center gap-4 bg-primary/5 border-primary/10">
-           <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary">
-              <ShieldCheck size={20} />
-           </div>
-           <div>
-              <p className="text-2xl font-bold font-outfit">8</p>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Active Proxies</p>
-           </div>
-        </HealthCard>
-        <HealthCard padding="md" className="flex items-center gap-4">
-           <div className="w-10 h-10 rounded-xl bg-health-violet/10 flex items-center justify-center text-health-violet">
-              <Eye size={20} />
-           </div>
-           <div>
-              <p className="text-2xl font-bold font-outfit">12</p>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Profile Views</p>
-           </div>
-        </HealthCard>
-        <HealthCard padding="md" className="flex items-center gap-4">
-           <div className="w-10 h-10 rounded-xl bg-health-sky/10 flex items-center justify-center text-health-sky">
-              <Lock size={20} />
-           </div>
-           <div>
-              <p className="text-2xl font-bold font-outfit">HIPAA</p>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Security Level</p>
-           </div>
-        </HealthCard>
-      </div>
-
-      {/* ─── Permissions List ─────────────────── */}
+      {/* ─── Doctor Share Links Table ─────────── */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between px-1">
-           <h3 className="font-bold font-outfit text-lg">Authorized Access</h3>
-           <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input className="bg-muted/40 border-none rounded-xl h-8 pl-8 pr-4 text-[11px] outline-none" placeholder="Search people..." />
-           </div>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold font-outfit flex items-center gap-2">
+            <Stethoscope size={20} className="text-primary" />
+            Active Doctor Consultation Links
+          </h2>
+          <span className="text-xs font-semibold text-muted-foreground">
+            {doctorShares.length} links generated
+          </span>
         </div>
 
-        <div className="space-y-3">
-          {permissions.map((p) => (
-            <HealthCard key={p.id} padding="none" className="overflow-hidden border-border/50 group">
-              <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center text-muted-foreground text-lg font-bold">
-                    {p.name.charAt(0)}
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <RefreshCw size={24} className="animate-spin text-primary" />
+          </div>
+        ) : doctorShares.length === 0 ? (
+          <HealthCard className="p-6 text-center text-sm text-muted-foreground">
+            No active doctor consultation links generated.
+          </HealthCard>
+        ) : (
+          <div className="space-y-3">
+            {doctorShares.map((s) => (
+              <HealthCard
+                key={s.id}
+                className={cn(
+                  "p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all",
+                  s.isRevoked && "opacity-60 bg-muted/40",
+                  !s.isRevoked && s.isExpired && "border-amber-500/30 bg-amber-500/5"
+                )}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm text-foreground font-outfit">
+                      {s.doctorName || "Consulting Physician"}
+                    </span>
+                    {s.isRevoked ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/15 text-rose-500">
+                        Revoked
+                      </span>
+                    ) : s.isExpired ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-500">
+                        Expired
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-500">
+                        Active
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <h4 className="font-bold text-sm">{p.name}</h4>
-                    <p className="text-[11px] text-muted-foreground">{p.role}</p>
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Expires: {format(parseISO(s.expiresAt), "MMM d, yyyy h:mm a")} • Viewed:{" "}
+                    <strong>{s.accessedCount} times</strong>
+                  </p>
+                  <p className="text-[11px] font-mono text-muted-foreground">
+                    URL: {s.shareUrl}
+                  </p>
                 </div>
 
-                <div className="flex flex-1 items-center justify-center gap-8">
-                   <div className="text-center">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Access Level</p>
-                      <VitalBadge status="info" size="sm">{p.access}</VitalBadge>
-                   </div>
-                   <div className="text-center">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Expires On</p>
-                      <p className="text-xs font-bold">{p.expiry}</p>
-                   </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                   <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl hover:bg-muted text-muted-foreground">
-                      <Edit3 size={16} />
-                   </Button>
-                   <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl hover:bg-health-critical/5 text-muted-foreground hover:text-health-critical">
-                      <Trash2 size={16} />
-                   </Button>
-                </div>
-              </div>
-            </HealthCard>
-          ))}
-        </div>
+                {!s.isRevoked && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRevokeShare(s.id)}
+                    className="text-rose-500 border-rose-500/20 hover:bg-rose-500/10 text-xs shrink-0"
+                  >
+                    <Trash2 size={14} className="mr-1.5" />
+                    Revoke Link
+                  </Button>
+                )}
+              </HealthCard>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* ─── Audit Log ────────────────────────── */}
-      <HealthCard padding="none" className="overflow-hidden border-dashed">
-         <div className="p-4 border-b bg-muted/20 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-               <History size={16} className="text-muted-foreground" />
-               <h4 className="font-bold font-outfit text-sm">Access Audit Log</h4>
+      {/* ─── Delegate Caregiver Dialog ────────── */}
+      <Drawer open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+        <DrawerContent className="sm:max-w-md">
+          <DrawerHeader>
+            <DrawerTitle className="font-outfit text-xl">Delegate Caregiver Access</DrawerTitle>
+          </DrawerHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Select Family Profile
+              </label>
+              <select
+                value={selectedMemberId}
+                onChange={(e) => setSelectedMemberId(e.target.value)}
+                className="w-full bg-muted/50 border border-border rounded-xl px-3.5 py-2 text-sm focus:outline-none"
+              >
+                {ownedMembers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.fullName} ({m.relationship})
+                  </option>
+                ))}
+              </select>
             </div>
-            <Button variant="link" className="h-auto p-0 text-[11px] font-bold text-primary">View Full History</Button>
-         </div>
-         <div className="p-4 space-y-3">
-            {[
-              { text: "Dr. Arvind Sharma accessed MRI Spine Report", time: "2h ago" },
-              { text: "Priya Singh logged in to view Dashboard", time: "5h ago" },
-              { text: "Access level updated for Max Healthcare", time: "1d ago" },
-            ].map((log, i) => (
-              <div key={i} className="flex items-center justify-between text-[11px]">
-                 <span className="text-muted-foreground">{log.text}</span>
-                 <span className="text-muted-foreground/40 font-medium">{log.time}</span>
-              </div>
-            ))}
-         </div>
-      </HealthCard>
+
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Caregiver Email (Must be a registered Maate user)
+              </label>
+              <input
+                type="email"
+                placeholder="caregiver@example.com"
+                value={caregiverEmail}
+                onChange={(e) => setCaregiverEmail(e.target.value)}
+                className="w-full bg-muted/50 border border-border rounded-xl px-3.5 py-2 text-sm focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Access Level
+              </label>
+              <select
+                value={accessLevel}
+                onChange={(e) => setAccessLevel(e.target.value)}
+                className="w-full bg-muted/50 border border-border rounded-xl px-3.5 py-2 text-sm focus:outline-none"
+              >
+                <option value="VIEW">VIEW (Read-only reports & vitals)</option>
+                <option value="EDIT">EDIT (Log vitals & reminders)</option>
+                <option value="FULL">FULL (Full administrative access)</option>
+                <option value="EMERGENCY">EMERGENCY (Critical alerts only)</option>
+              </select>
+            </div>
+          </div>
+          <DrawerFooter>
+            <Button variant="outline" onClick={() => setIsInviteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleInviteCaregiver}
+              disabled={!selectedMemberId || !caregiverEmail || isSubmitting}
+            >
+              {isSubmitting ? "Granting..." : "Grant Access"}
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

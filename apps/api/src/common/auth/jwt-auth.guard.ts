@@ -4,8 +4,14 @@
 // ============================================
 
 import {
-  CanActivate, createParamDecorator, ExecutionContext,
-  Injectable, SetMetadata, UnauthorizedException, ForbiddenException,
+  CanActivate,
+  createParamDecorator,
+  ExecutionContext,
+  Injectable,
+  SetMetadata,
+  UnauthorizedException,
+  ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
@@ -15,15 +21,19 @@ import { JwtPayload } from '../../modules/auth/services/token.service';
 export type { JwtPayload };
 
 import { PrismaService } from '../database/database.module';
+import { AuditService, AuditAction } from '../audit/audit.service';
 
 // ─── JWT Auth Guard ─────────────────────────
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly logger = new Logger(JwtAuthGuard.name);
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly reflector: Reflector,
     private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -83,7 +93,26 @@ export class JwtAuthGuard implements CanActivate {
           }
         }
 
+        const actingCaregiverId = payload.sub;
         payload.sub = patientId;
+        (payload as any).actingCaregiverId = actingCaregiverId;
+
+        // Compliance Audit Trail for Caregiver Proxy Access
+        this.audit
+          .record({
+            userId: patientId,
+            action: AuditAction.PHI_VIEW,
+            resource: 'ProxyCaregiverAccess',
+            resourceId: patientId,
+            newData: {
+              caregiverUserId: actingCaregiverId,
+              endpoint: request.url,
+              method: request.method,
+            },
+            severity: 'INFO',
+            req: request,
+          })
+          .catch((err) => this.logger.error('Proxy audit log error', err));
       }
 
       request['user'] = payload;
