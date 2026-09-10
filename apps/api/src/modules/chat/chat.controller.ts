@@ -1,21 +1,13 @@
 // ============================================
 // Chat Controller — AI Assistant Endpoints
+// Grounded Clinical Conversational API
 // ============================================
 
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
 import { ChatService } from './chat.service';
-import { IsNotEmpty, IsString, IsUUID } from 'class-validator';
-
-class SendMessageDto {
-  @IsString()
-  @IsNotEmpty()
-  message!: string;
-
-  @IsUUID()
-  sessionId!: string;
-}
+import { SendMessageDto } from './dto/chat.dto';
 
 @ApiTags('chat')
 @ApiBearerAuth()
@@ -29,7 +21,7 @@ export class ChatController {
     @CurrentUser('sub') userId: string,
     @Body() dto: SendMessageDto,
   ) {
-    return this.chatService.sendMessage(userId, dto.sessionId, dto.message);
+    return this.chatService.sendMessage(userId, dto);
   }
 
   @Get('sessions')
@@ -45,5 +37,14 @@ export class ChatController {
     @Param('id') sessionId: string,
   ) {
     return this.chatService.getHistory(userId, sessionId);
+  }
+
+  @Delete('sessions/:id')
+  @ApiOperation({ summary: 'Archive/delete a chat session' })
+  async deleteSession(
+    @CurrentUser('sub') userId: string,
+    @Param('id') sessionId: string,
+  ) {
+    return this.chatService.deleteSession(userId, sessionId);
   }
 }

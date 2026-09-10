@@ -254,7 +254,7 @@ export class DocumentProcessor {
     }
   }
 
-  // ─── Document Chunking (Phase 4 scope) ─────
+  // ─── Document Chunking & Embedding (Phase 8 pgvector) ─────
   private async createDocumentChunks(
     documentId: string,
     rawText: string,
@@ -281,24 +281,73 @@ export class DocumentProcessor {
         start += chunkSize - overlap;
       }
 
-      for (const [i, chunk] of chunks.entries()) {
-        await this.prisma.documentChunk.create({
-          data: {
-            documentId,
-            content: chunk.content,
-            metadata: {
-              chunkIndex: i,
-              charStart: chunk.charStart,
-              charEnd: chunk.charEnd,
-              documentType,
-              tokenCount: Math.ceil(chunk.content.length / 4),
-              embedding_status: 'pending_provider',
-            },
-          },
-        });
+      if (chunks.length === 0) return;
+
+      // 1. Attempt batch embedding from AI Service
+      let embeddings: number[][] | null = null;
+      try {
+        const embRes = await firstValueFrom(
+          this.http.post<{ data: { embeddings: number[][] } }>(
+            `${this.aiServiceUrl}/api/v1/ai/embeddings`,
+            { texts: chunks.map(c => c.content) },
+            { timeout: 10000 },
+          ),
+        );
+        if (embRes?.data?.data?.embeddings && Array.isArray(embRes.data.data.embeddings)) {
+          embeddings = embRes.data.data.embeddings;
+        }
+      } catch (embErr: any) {
+        this.logger.warn(`AI Service embedding failed for doc=${documentId}: ${embErr?.message || embErr}`);
       }
 
-      this.logger.log(`Created ${chunks.length} document chunks for doc=${documentId}`);
+      // 2. Persist chunks with pgvector embeddings
+      for (const [i, chunk] of chunks.entries()) {
+        const vector = embeddings && embeddings[i] ? embeddings[i] : null;
+        const embeddingStatus = vector ? 'completed' : 'pending_provider';
+
+        const metadataJson = JSON.stringify({
+          chunkIndex: i,
+          charStart: chunk.charStart,
+          charEnd: chunk.charEnd,
+          documentType,
+          tokenCount: Math.ceil(chunk.content.length / 4),
+          embedding_status: embeddingStatus,
+        });
+
+        if (vector) {
+          const vectorStr = `[${vector.join(',')}]`;
+          await this.prisma.$executeRaw`
+            INSERT INTO "document_chunks" ("id", "document_id", "content", "metadata", "embedding", "created_at")
+            VALUES (
+              gen_random_uuid(),
+              ${documentId}::uuid,
+              ${chunk.content},
+              ${metadataJson}::jsonb,
+              ${vectorStr}::vector,
+              NOW()
+            );
+          `;
+        } else {
+          await this.prisma.documentChunk.create({
+            data: {
+              documentId,
+              content: chunk.content,
+              metadata: {
+                chunkIndex: i,
+                charStart: chunk.charStart,
+                charEnd: chunk.charEnd,
+                documentType,
+                tokenCount: Math.ceil(chunk.content.length / 4),
+                embedding_status: 'pending_provider',
+              },
+            },
+          });
+        }
+      }
+
+      this.logger.log(
+        `Created ${chunks.length} document chunks for doc=${documentId} (embeddings: ${embeddings ? 'generated' : 'pending'})`,
+      );
     } catch (err: any) {
       this.logger.warn(`Failed to store document chunks for doc=${documentId}: ${err?.message || err}`);
     }
