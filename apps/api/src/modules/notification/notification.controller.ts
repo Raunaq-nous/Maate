@@ -49,6 +49,15 @@ export class NotificationController {
     });
   }
 
+  @Post('read-all')
+  @ApiOperation({ summary: 'Mark all notifications as read' })
+  async markAllRead(@CurrentUser('sub') userId: string) {
+    return this.prisma.notification.updateMany({
+      where: { userId, readAt: null },
+      data: { readAt: new Date(), status: 'READ' },
+    });
+  }
+
   @Post(':id/read')
   @ApiOperation({ summary: 'Mark notification as read' })
   async markAsRead(

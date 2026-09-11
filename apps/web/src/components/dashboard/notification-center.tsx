@@ -5,80 +5,120 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { 
   Bell, 
   CheckCheck, 
   Settings2, 
-  Search,
-  Filter,
-  Inbox
+  Inbox,
+  Loader2
 } from "lucide-react";
 import { 
   Popover, 
   PopoverContent, 
   PopoverTrigger 
 } from "@/components/ui/popover";
-import { NotificationCard, Notification } from "./notification-card";
+import { NotificationCard, Notification, NotificationType } from "./notification-card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/api";
 
-const initialNotifications: Notification[] = [
-  { 
-    id: "1", 
-    type: "ai", 
-    title: "AI Insight: Hemoglobin Trend", 
-    description: "Your hemoglobin levels have improved by 12% since the last report. Keep up the high-protein diet.", 
-    time: "2m ago", 
-    isUnread: true 
-  },
-  { 
-    id: "2", 
-    type: "upload", 
-    title: "Report Processed", 
-    description: "Lab_Report_May.pdf has been successfully analyzed and added to your health vault.", 
-    time: "1h ago", 
-    isUnread: true 
-  },
-  { 
-    id: "3", 
-    type: "reminder", 
-    title: "Medication: Metformin", 
-    description: "It's time for your 500mg dose. Take it with water after your meal.", 
-    time: "3h ago", 
-    isUnread: false 
-  },
-  { 
-    id: "4", 
-    type: "system", 
-    title: "Action Required: Sync Failed", 
-    description: "Apple Health sync was interrupted. Please re-authenticate your account.", 
-    time: "1d ago", 
-    isUnread: false 
+function formatRelativeTime(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - d.getTime()) / 1000);
+    if (diffSec < 60) return "Just now";
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  } catch {
+    return "Recent";
   }
-];
+}
+
+function mapDbTypeToUiType(type: string): NotificationType {
+  const t = (type || "").toUpperCase();
+  if (t === "REMINDER") return "reminder";
+  if (t === "ALERT" || t === "ESCALATION") return "alert";
+  if (t === "SYSTEM") return "system";
+  if (t === "INFO") return "info";
+  return "info";
+}
 
 export function NotificationCenter() {
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<string>("all");
-  const unreadCount = notifications.filter(n => n.isUnread).length;
+  const [loading, setLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
-  const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, isUnread: false })));
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await apiClient.get<any[]>("/notifications/history");
+      const mapped: Notification[] = (res.data || []).map((n) => ({
+        id: n.id,
+        type: mapDbTypeToUiType(n.type),
+        title: n.title,
+        description: n.body,
+        time: formatRelativeTime(n.createdAt),
+        isUnread: !n.readAt && n.status !== "READ",
+        priority: n.type === "ALERT" || n.type === "ESCALATION" ? "high" : "medium",
+      }));
+      setNotifications(mapped);
+    } catch (err) {
+      console.warn("Failed to load notifications:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000); // Polling every 30s
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
+  const unreadCount = notifications.filter((n) => n.isUnread).length;
+
+  const markAllRead = async () => {
+    try {
+      setNotifications((prev) => prev.map((n) => ({ ...n, isUnread: false })));
+      await apiClient.post("/notifications/read-all");
+    } catch (err) {
+      console.error("Failed to mark all as read:", err);
+    }
   };
 
-  const markRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isUnread: false } : n));
+  const markRead = async (id: string) => {
+    try {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isUnread: false } : n))
+      );
+      await apiClient.post(`/notifications/${id}/read`);
+    } catch (err) {
+      console.error("Failed to mark notification read:", err);
+    }
   };
+
+  const filteredNotifications = notifications.filter((n) => {
+    if (filter === "all") return true;
+    if (filter === "ai") return n.type === "ai" || n.title.toLowerCase().includes("ai");
+    if (filter === "updates") return n.type === "alert" || n.type === "info" || n.type === "system";
+    return true;
+  });
 
   return (
-    <Popover>
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="rounded-full relative hover:bg-muted group">
           <Bell size={20} className="group-hover:rotate-12 transition-transform" />
           {unreadCount > 0 && (
             <span className="absolute top-2.5 right-2.5 w-4 h-4 bg-primary text-[10px] font-bold text-white rounded-full border-2 border-background flex items-center justify-center animate-in zoom-in duration-300">
-              {unreadCount}
+              {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
         </Button>
@@ -101,6 +141,7 @@ export function NotificationCenter() {
                 className="h-8 w-8 text-muted-foreground hover:text-primary"
                 onClick={markAllRead}
                 title="Mark all as read"
+                disabled={unreadCount === 0}
               >
                 <CheckCheck size={18} />
               </Button>
@@ -128,9 +169,13 @@ export function NotificationCenter() {
 
         {/* List */}
         <div className="max-h-[450px] overflow-y-auto scrollbar-hide py-2">
-          {notifications.length > 0 ? (
+          {loading && notifications.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="animate-spin text-primary" size={24} />
+            </div>
+          ) : filteredNotifications.length > 0 ? (
             <div className="divide-y divide-border/30">
-              {notifications.map((n) => (
+              {filteredNotifications.map((n) => (
                 <NotificationCard 
                   key={n.id} 
                   notification={n} 
@@ -151,11 +196,16 @@ export function NotificationCenter() {
 
         {/* Footer */}
         <div className="p-4 border-t bg-muted/10">
-          <Button variant="ghost" className="w-full text-xs font-bold text-primary hover:bg-primary/5 rounded-xl h-10">
-            View All Notifications
+          <Button 
+            variant="ghost" 
+            className="w-full text-xs font-bold text-primary hover:bg-primary/5 rounded-xl h-10"
+            onClick={fetchNotifications}
+          >
+            Refresh Notifications
           </Button>
         </div>
       </PopoverContent>
     </Popover>
   );
 }
+

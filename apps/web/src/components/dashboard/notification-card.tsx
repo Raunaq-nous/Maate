@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type NotificationType = "reminder" | "ai" | "upload" | "system";
+export type NotificationType = "reminder" | "ai" | "upload" | "system" | "alert" | "info" | "escalation";
 
 export interface Notification {
   id: string;
@@ -34,13 +34,16 @@ const typeConfig: Record<NotificationType, { icon: any; color: string; bg: strin
   ai: { icon: Sparkles, color: "text-health-violet", bg: "bg-health-violet/10" },
   upload: { icon: UploadCloud, color: "text-primary", bg: "bg-primary/10" },
   system: { icon: AlertCircle, color: "text-health-critical", bg: "bg-health-critical/10" },
+  alert: { icon: AlertCircle, color: "text-health-critical", bg: "bg-health-critical/10" },
+  escalation: { icon: AlertCircle, color: "text-health-critical", bg: "bg-health-critical/10" },
+  info: { icon: Bell, color: "text-primary", bg: "bg-primary/10" },
 };
 
 export function NotificationCard({ notification, onClick }: { 
   notification: Notification; 
   onClick?: () => void;
 }) {
-  const config = typeConfig[notification.type];
+  const config = typeConfig[notification.type] || typeConfig.info;
   const Icon = config.icon;
 
   return (

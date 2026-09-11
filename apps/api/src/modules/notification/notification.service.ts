@@ -75,7 +75,7 @@ export class NotificationService {
 
     if (devices.length === 0) {
       this.logger.warn(`No active devices for user ${userId}`);
-      return;
+      return notification;
     }
 
     // 3. Enqueue for each device to handle per-token failures/retries

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/database/database.module';
 import { AuditService, AuditAction } from '../../common/audit/audit.service';
+import { NotificationService } from '../notification/notification.service';
 import { CreateDoctorShareDto } from './dto/share.dto';
 import * as crypto from 'crypto';
 import type { Request } from 'express';
@@ -22,6 +23,7 @@ export class ShareService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -186,6 +188,31 @@ export class ShareService {
       severity: 'INFO',
       req,
     });
+
+    // Notify patient about doctor access
+    try {
+      const docDisplayName = share.doctorName
+        ? share.doctorName.toLowerCase().startsWith('dr')
+          ? share.doctorName
+          : `Dr. ${share.doctorName}`
+        : 'A healthcare provider';
+
+      await this.notificationService.sendPushNotification(share.userId, {
+        title: 'Doctor Accessed Records',
+        body: `${docDisplayName} viewed your shared medical profile.`,
+        type: 'ALERT',
+        data: {
+          event: 'DOCTOR_SHARE_VIEWED',
+          shareId: share.id,
+          doctorName: share.doctorName,
+          accessedAt: new Date().toISOString(),
+        },
+      });
+    } catch (notifErr: any) {
+      this.logger.warn(
+        `Failed to send doctor access notification for share=${share.id}: ${notifErr?.message || notifErr}`,
+      );
+    }
 
     const result: any = {
       patient: {

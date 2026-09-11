@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/database/database.module';
 import { AuditService, AuditAction } from '../../common/audit/audit.service';
+import { NotificationService } from '../notification/notification.service';
 import { AccessLevel, RelationshipType, Gender } from '@maate/database';
 import type { Request } from 'express';
 
@@ -21,6 +22,7 @@ export class FamilyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -140,6 +142,39 @@ export class FamilyService {
       req,
     });
 
+    // Notify owner/patient and grantee
+    try {
+      await this.notificationService.sendPushNotification(ownerId, {
+        title: 'Caregiver Access Granted',
+        body: `${grantee.fullName || granteeEmail} has been granted ${level} access to ${member.fullName}'s health records.`,
+        type: 'ALERT',
+        data: {
+          event: 'CAREGIVER_ACCESS_GRANTED',
+          memberId,
+          memberName: member.fullName,
+          granteeId: grantee.id,
+          level,
+        },
+      });
+
+      await this.notificationService.sendPushNotification(grantee.id, {
+        title: 'New Health Profile Shared',
+        body: `You have been granted ${level} access to manage ${member.fullName}'s health records.`,
+        type: 'INFO',
+        data: {
+          event: 'CAREGIVER_INVITATION',
+          memberId,
+          memberName: member.fullName,
+          ownerId,
+          level,
+        },
+      });
+    } catch (notifErr: any) {
+      this.logger.warn(
+        `Failed to send family share notifications for member=${memberId}: ${notifErr?.message || notifErr}`,
+      );
+    }
+
     return permission;
   }
 
@@ -211,6 +246,34 @@ export class FamilyService {
         severity: 'WARN',
         req,
       });
+
+      // Notify owner and revoked caregiver
+      try {
+        await this.notificationService.sendPushNotification(ownerId, {
+          title: 'Caregiver Access Revoked',
+          body: `Caregiver access to ${member.fullName}'s health profile was revoked.`,
+          type: 'ALERT',
+          data: {
+            event: 'CAREGIVER_ACCESS_REVOKED',
+            memberId,
+            granteeId,
+          },
+        });
+
+        await this.notificationService.sendPushNotification(granteeId, {
+          title: 'Caregiver Access Revoked',
+          body: `Your access to ${member.fullName}'s health records has been revoked.`,
+          type: 'INFO',
+          data: {
+            event: 'CAREGIVER_ACCESS_REVOKED',
+            memberId,
+          },
+        });
+      } catch (notifErr: any) {
+        this.logger.warn(
+          `Failed to send revoke notification for member=${memberId}: ${notifErr?.message || notifErr}`,
+        );
+      }
     }
 
     return { success: deleted.count > 0 };

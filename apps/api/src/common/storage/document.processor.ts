@@ -13,6 +13,7 @@ import FormData from 'form-data';
 import { PrismaService } from '../database/database.module';
 import { StorageService } from './storage.service';
 import { FileProcessingJob } from './file-processing.service';
+import { NotificationService } from '../../modules/notification/notification.service';
 
 @Processor('document-processing')
 export class DocumentProcessor {
@@ -25,6 +26,7 @@ export class DocumentProcessor {
     private readonly config: ConfigService,
     private readonly http: HttpService,
     private readonly storage: StorageService,
+    private readonly notificationService: NotificationService,
   ) {
     this.aiServiceUrl = this.config.get('AI_SERVICE_URL', 'http://localhost:8001');
     this.ocrServiceUrl = this.config.get('OCR_SERVICE_URL', 'http://localhost:8002');
@@ -152,6 +154,27 @@ export class DocumentProcessor {
           where: { id: data.documentId },
           data: { ocrStatus: 'FAILED' },
         });
+
+        // Notify user about OCR failure
+        try {
+          const doc = await this.prisma.document.findUnique({
+            where: { id: data.documentId },
+            select: { userId: true, title: true },
+          });
+          if (doc) {
+            await this.notificationService.sendPushNotification(doc.userId, {
+              title: 'Document Processing Incomplete',
+              body: `We were unable to read "${doc.title || data.fileName || 'uploaded document'}". Please ensure the image or PDF is clear and re-upload.`,
+              type: 'ALERT',
+              data: {
+                event: 'DOCUMENT_OCR_FAILED',
+                documentId: data.documentId,
+              },
+            });
+          }
+        } catch (notifErr: any) {
+          this.logger.warn(`Failed to send OCR failure notification: ${notifErr?.message || notifErr}`);
+        }
       } else {
         this.logger.warn(
           `AI OCR transient error for doc=${data.documentId}, will retry (attempt ${job.attemptsMade + 1}/${maxAttempts}): ${err?.message || err}`,
@@ -245,6 +268,40 @@ export class DocumentProcessor {
       this.logger.log(
         `AI summary completed: doc=${data.documentId} (isMock=${Boolean(summaryData.is_mock)}, model=${summaryData.model_used})`,
       );
+
+      // Notify user about AI summary completion and any risk flags
+      try {
+        const doc = await this.prisma.document.findUnique({
+          where: { id: data.documentId },
+          select: { userId: true, title: true },
+        });
+        if (doc) {
+          const hasRiskFlags = Array.isArray(summaryData.risk_flags) && summaryData.risk_flags.length > 0;
+          const isCritical = hasRiskFlags && summaryData.risk_flags.some((f: string) =>
+            typeof f === 'string' && (f.toLowerCase().includes('critical') || f.toLowerCase().includes('high') || f.toLowerCase().includes('urgent'))
+          );
+
+          await this.notificationService.sendPushNotification(doc.userId, {
+            title: isCritical
+              ? 'Health Report: Attention Needed'
+              : hasRiskFlags
+              ? 'Health Report Analyzed with Alerts'
+              : 'Medical Report Analyzed',
+            body: hasRiskFlags
+              ? `AI analysis of "${doc.title || data.fileName || 'your report'}" identified ${summaryData.risk_flags.length} health flag(s) to review.`
+              : `AI summary and key health metrics are ready for "${doc.title || data.fileName || 'your report'}".`,
+            type: hasRiskFlags ? 'ALERT' : 'INFO',
+            data: {
+              event: 'DOCUMENT_AI_SUMMARY_COMPLETED',
+              documentId: data.documentId,
+              hasRiskFlags,
+              riskFlagsCount: summaryData.risk_flags?.length || 0,
+            },
+          });
+        }
+      } catch (notifErr: any) {
+        this.logger.warn(`Failed to send AI summary notification: ${notifErr?.message || notifErr}`);
+      }
     } catch (err: any) {
       this.logger.error(`AI summary failed for doc=${data.documentId}: ${err?.message || err}`);
       await this.prisma.document.update({
