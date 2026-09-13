@@ -277,9 +277,17 @@ export class DocumentProcessor {
         });
         if (doc) {
           const hasRiskFlags = Array.isArray(summaryData.risk_flags) && summaryData.risk_flags.length > 0;
-          const isCritical = hasRiskFlags && summaryData.risk_flags.some((f: string) =>
-            typeof f === 'string' && (f.toLowerCase().includes('critical') || f.toLowerCase().includes('high') || f.toLowerCase().includes('urgent'))
-          );
+          const isCritical = hasRiskFlags && summaryData.risk_flags.some((f: any) => {
+            if (typeof f === 'string') {
+              const lower = f.toLowerCase();
+              return lower.includes('critical') || lower.includes('high') || lower.includes('urgent') || lower.includes('severe');
+            }
+            if (typeof f === 'object' && f !== null) {
+              const sev = String(f.severity || f.status || '').toLowerCase();
+              return sev.includes('critical') || sev.includes('high') || sev.includes('urgent') || sev.includes('severe') || sev.includes('needs_verification');
+            }
+            return false;
+          });
 
           await this.notificationService.sendPushNotification(doc.userId, {
             title: isCritical

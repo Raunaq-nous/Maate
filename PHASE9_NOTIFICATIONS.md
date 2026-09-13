@@ -68,6 +68,45 @@ Automated E2E script (`scratch/test_phase9_notifications.py` and `scratch/test_p
 >>> ALL PHASE 9 CROSS-CHANNEL NOTIFICATION TESTS PASSED <<<
 ```
 
+### 4.2 Document OCR Failure & AI Summary Severity Live Verification
+
+Deep verification suite (`scratch/test_phase9_doc_notifications_live.py`) executed against live NestJS API, OCR service (Tesseract), AI summarization service (Groq LLM), MinIO, and PostgreSQL:
+
+```
+[INFO] =================================================================
+[INFO] Starting Live Document Notifications Verification (OCR & AI Summary)
+[INFO] =================================================================
+[INFO] Authenticated as user: Priya Sharma (priya@example.com)
+[INFO] 
+--- TEST 1: Corrupt File OCR Failure Alert ---
+[INFO] Uploaded corrupted document: doc_id=477c963b-b0be-48a5-9de3-165d540b9bfb. Waiting for OCR failure & notification...
+[INFO] Received Notification ID: 10fe030d-a20a-401d-a640-a7fc671c1242
+[INFO] Title: 'Document Processing Incomplete'
+[INFO] Body: 'We were unable to read "Corrupted Lab Scan". Please ensure the image or PDF is clear and re-upload.'
+[INFO] Type: ALERT
+[SUCCESS] TEST 1 PASSED: Real OCR failure triggered actionable ALERT notification.
+[INFO] 
+--- TEST 2: AI Summary with Critical Risk Flags (ALERT Severity) ---
+[INFO] Uploaded critical report: doc_id=e12377a0-8232-43a8-a21e-9ff34fbf5c98. Waiting for OCR + AI summary & notification...
+[INFO] Received Notification ID: c82757f8-c10b-43b1-bf2d-ebd36d9524ce
+[INFO] Title: 'Health Report: Attention Needed'
+[INFO] Body: 'AI analysis of "Critical Metabolic Panel" identified 3 health flag(s) to review.'
+[INFO] Type: ALERT
+[SUCCESS] TEST 2 PASSED: Critical AI summary correctly escalated to ALERT notification.
+[INFO] 
+--- TEST 3: AI Summary Normal / Healthy (INFO Severity) ---
+[INFO] Uploaded normal report: doc_id=93486f43-fcef-4dd8-b677-d5bbf0812f23. Waiting for OCR + AI summary & notification...
+[INFO] Received Notification ID: ac329474-6342-48ec-92e6-5c31226d9da7
+[INFO] Title: 'Medical Report Analyzed'
+[INFO] Body: 'AI summary and key health metrics are ready for "Routine Health Checkup".'
+[INFO] Type: INFO
+[SUCCESS] TEST 3 PASSED: Normal AI summary correctly retained INFO severity.
+[INFO] 
+=================================================================
+[SUCCESS] ALL DOCUMENT OCR FAILURE & AI SUMMARY NOTIFICATION TESTS PASSED!
+[INFO] =================================================================
+```
+
 ---
 
 ## 5. Quality Assurance & CI Verification

@@ -11,15 +11,11 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
     ThrottlerModule.forRoot([{
       name: 'short',
       ttl: 60000, // 1 minute
-      limit: 60,  // 60 requests
+      limit: 100,  // 100 requests / minute
     }, {
       name: 'medium',
       ttl: 3600000, // 1 hour
-      limit: 1000,
-    }, {
-      name: 'auth', // Stricter for login/register
-      ttl: 3600000,
-      limit: 10,
+      limit: 10000,
     }]),
   ],
   providers: [
