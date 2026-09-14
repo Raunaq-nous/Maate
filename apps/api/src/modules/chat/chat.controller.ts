@@ -5,6 +5,7 @@
 
 import { Controller, Get, Post, Delete, Body, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
 import { ChatService } from './chat.service';
 import { SendMessageDto } from './dto/chat.dto';
@@ -16,6 +17,7 @@ export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   @Post('message')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Send a message to Maate AI' })
   async sendMessage(
     @CurrentUser('sub') userId: string,
