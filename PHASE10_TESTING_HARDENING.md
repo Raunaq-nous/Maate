@@ -91,5 +91,6 @@ All monorepo quality checks, test suites, and production builds execute cleanly:
 - `pnpm run lint` -> **0 errors**
 - `pnpm run typecheck` -> **0 TypeScript errors (7/7 packages successful)**
 - `pnpm run test:ci` -> **8/8 test suites passed, 40/40 tests passed across monorepo**
-- `pytest` -> **9/9 tests passed across Python microservices**
+- `pytest` -> **9/9 tests passed across Python microservices (`services/ocr-service` & `services/ai-service`)**
 - `pnpm run build` -> **All packages built successfully (Full Turbo cache verification)**
+- **GitHub Actions CI Pipeline** -> Automated execution of `quality`, `test` (Node/Postgres/Redis), `python-test` (OCR & AI pytest), `security`, `build`, and `docker` jobs on every push and PR.
