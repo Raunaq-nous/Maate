@@ -3,17 +3,25 @@
 // Unified access to chronological events
 // ============================================
 
-import { Controller, Get, Query, Patch, Param, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import { TimelineService, TimelineFilters } from './timeline.service';
 import { TimelineEventType } from '@maate/database';
+import { Controller, Get, Query, Patch, Param, Body, Req } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import type { Request } from 'express';
+
+import type { AuditService} from '../../common/audit/audit.service';
+import { AuditAction } from '../../common/audit/audit.service';
+import { CurrentUser } from '../../common/auth/jwt-auth.guard';
+
+import type { TimelineService, TimelineFilters } from './timeline.service';
 
 @ApiTags('timeline')
 @ApiBearerAuth()
 @Controller({ path: 'timeline', version: '1' })
 export class TimelineController {
-  constructor(private readonly timelineService: TimelineService) {}
+  constructor(
+    private readonly timelineService: TimelineService,
+    private readonly audit: AuditService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Get unified health timeline' })
@@ -23,8 +31,16 @@ export class TimelineController {
   async getTimeline(
     @CurrentUser('sub') userId: string,
     @Query() filters: TimelineFilters,
+    @Req() req?: Request,
   ) {
-    return this.timelineService.getTimeline(userId, filters);
+    const data = await this.timelineService.getTimeline(userId, filters);
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'Timeline',
+      req,
+    });
+    return data;
   }
 
   @Patch(':id/pin')
@@ -39,7 +55,14 @@ export class TimelineController {
 
   @Get('summary')
   @ApiOperation({ summary: 'Get health timeline highlights' })
-  async getHighlights(@CurrentUser('sub') userId: string) {
-    return this.timelineService.getSummary(userId);
+  async getHighlights(@CurrentUser('sub') userId: string, @Req() req?: Request) {
+    const summary = await this.timelineService.getSummary(userId);
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'TimelineSummary',
+      req,
+    });
+    return summary;
   }
 }

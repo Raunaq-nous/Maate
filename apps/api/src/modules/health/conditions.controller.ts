@@ -2,6 +2,7 @@
 // Conditions Controller — Chronic Conditions API
 // ============================================
 
+import { TimelineEventType, ConditionStatus } from '@maate/database';
 import {
   Controller,
   Get,
@@ -11,13 +12,18 @@ import {
   Body,
   Query,
   Param,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import type { Request } from 'express';
+
+import type { AuditService} from '../../common/audit/audit.service';
+import { AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import { PrismaService } from '../../common/database/database.module';
-import { TimelineService } from '../timeline/timeline.service';
-import { CreateConditionDto, UpdateConditionDto } from './dto/health.dto';
-import { TimelineEventType, ConditionStatus } from '@maate/database';
+import type { PrismaService } from '../../common/database/database.module';
+import type { TimelineService } from '../timeline/timeline.service';
+
+import type { CreateConditionDto, UpdateConditionDto } from './dto/health.dto';
 
 @ApiTags('conditions')
 @ApiBearerAuth()
@@ -26,6 +32,7 @@ export class ConditionsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly timelineService: TimelineService,
+    private readonly audit: AuditService,
   ) {}
 
   @Post()
@@ -33,6 +40,7 @@ export class ConditionsController {
   async createCondition(
     @CurrentUser('sub') userId: string,
     @Body() dto: CreateConditionDto,
+    @Req() req?: Request,
   ) {
     const diagnosedDate = dto.diagnosedDate ? new Date(dto.diagnosedDate) : new Date();
 
@@ -49,6 +57,14 @@ export class ConditionsController {
         notes: dto.notes,
         managementPlan: dto.managementPlan,
       },
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_CREATE,
+      resource: 'ChronicCondition',
+      resourceId: condition.id,
+      req,
     });
 
     // Auto-record TimelineEvent
@@ -77,6 +93,7 @@ export class ConditionsController {
   async getConditions(
     @CurrentUser('sub') userId: string,
     @Query('status') status?: ConditionStatus,
+    @Req() req?: Request,
   ) {
     const conditions = await this.prisma.chronicCondition.findMany({
       where: {
@@ -85,6 +102,13 @@ export class ConditionsController {
         ...(status && { status }),
       },
       orderBy: { diagnosedDate: 'desc' },
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'ChronicCondition',
+      req,
     });
 
     return { data: conditions };
@@ -96,6 +120,7 @@ export class ConditionsController {
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body() dto: UpdateConditionDto,
+    @Req() req?: Request,
   ) {
     const condition = await this.prisma.chronicCondition.findFirst({
       where: { id, userId, deletedAt: null },
@@ -111,6 +136,14 @@ export class ConditionsController {
         ...(dto.notes !== undefined && { notes: dto.notes }),
         ...(dto.managementPlan !== undefined && { managementPlan: dto.managementPlan }),
       },
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_UPDATE,
+      resource: 'ChronicCondition',
+      resourceId: id,
+      req,
     });
 
     if (dto.status === 'RESOLVED') {
@@ -133,11 +166,22 @@ export class ConditionsController {
   async deleteCondition(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
+    @Req() req?: Request,
   ) {
     const deleted = await this.prisma.chronicCondition.updateMany({
       where: { id, userId, deletedAt: null },
       data: { deletedAt: new Date() },
     });
+
+    if (deleted.count > 0) {
+      await this.audit.record({
+        userId,
+        action: AuditAction.PHI_DELETE,
+        resource: 'ChronicCondition',
+        resourceId: id,
+        req,
+      });
+    }
 
     return { success: deleted.count > 0 };
   }

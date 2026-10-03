@@ -34,6 +34,11 @@ import {
   IsArray,
   IsNumber,
   IsBoolean,
+  IsInt,
+  Min,
+  Max,
+  Matches,
+  IsNotEmpty,
 } from 'class-validator';
 
 class RespondToReminderDto {
@@ -47,6 +52,7 @@ class RespondToReminderDto {
 
 class CreateMedicineReminderDto {
   @IsString()
+  @IsNotEmpty()
   medicineName!: string;
 
   @IsString()
@@ -58,10 +64,17 @@ class CreateMedicineReminderDto {
 
   @IsArray()
   @IsString({ each: true })
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    each: true,
+    message: 'timesOfDay elements must be in HH:MM 24-hour format',
+  })
   timesOfDay!: string[];
 
   @IsArray()
   @IsOptional()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
   daysOfWeek?: number[];
 
   @IsEnum(MealRelation)
@@ -88,11 +101,18 @@ class UpdateMedicineReminderDto {
 
   @IsArray()
   @IsString({ each: true })
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    each: true,
+    message: 'timesOfDay elements must be in HH:MM 24-hour format',
+  })
   @IsOptional()
   timesOfDay?: string[];
 
   @IsArray()
   @IsOptional()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
   daysOfWeek?: number[];
 
   @IsEnum(MealRelation)
@@ -109,19 +129,31 @@ class UpdateMedicineReminderDto {
 }
 
 class UpsertWaterReminderDto {
-  @IsNumber()
+  @IsInt()
+  @Min(500)
+  @Max(10000)
   dailyGoalMl!: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(15)
+  @Max(720)
   intervalMinutes!: number;
 
   @IsString()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'activeStart must be in HH:MM 24-hour format',
+  })
   activeStart!: string;
 
   @IsString()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'activeEnd must be in HH:MM 24-hour format',
+  })
   activeEnd!: string;
 
-  @IsNumber()
+  @IsInt()
+  @Min(50)
+  @Max(2000)
   @IsOptional()
   glassSizeMl?: number;
 
@@ -135,6 +167,9 @@ class CreateMealReminderDto {
   mealType!: MealType;
 
   @IsString()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'scheduledTime must be in HH:MM 24-hour format',
+  })
   scheduledTime!: string;
 
   @IsString()
@@ -148,6 +183,9 @@ class UpdateMealReminderDto {
   mealType?: MealType;
 
   @IsString()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'scheduledTime must be in HH:MM 24-hour format',
+  })
   @IsOptional()
   scheduledTime?: string;
 

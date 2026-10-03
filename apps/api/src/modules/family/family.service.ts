@@ -34,8 +34,8 @@ export class FamilyService {
     data: {
       fullName: string;
       relationship: RelationshipType;
-      dateOfBirth?: Date;
-      gender?: string;
+      dateOfBirth?: Date | string;
+      gender?: Gender | string;
     },
     req?: Request,
   ) {

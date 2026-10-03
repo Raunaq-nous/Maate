@@ -5,11 +5,15 @@
 
 import { Controller, Get, Post, Delete, Param, Query, Body, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
+
+import type { AuditService} from '../../common/audit/audit.service';
+import { AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser, type JwtPayload } from '../../common/auth/jwt-auth.guard';
-import { DocumentService } from './document.service';
-import { GetUploadUrlDto, ConfirmUploadDto } from './dto/document.dto';
-import { AuditService, AuditAction } from '../../common/audit/audit.service';
+
+import type { DocumentService } from './document.service';
+import type { GetUploadUrlDto, ConfirmUploadDto } from './dto/document.dto';
 
 @ApiTags('documents')
 @ApiBearerAuth()
@@ -21,6 +25,7 @@ export class DocumentController {
   ) {}
 
   @Post('upload-url')
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get a signed S3 URL for document upload' })
   @ApiResponse({ status: 200, description: 'Returns signed URL and file key' })

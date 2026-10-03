@@ -15,10 +15,12 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { CurrentUser, Public } from '../../common/auth/jwt-auth.guard';
-import { ShareService } from './share.service';
-import { CreateDoctorShareDto } from './dto/share.dto';
 import type { Request } from 'express';
+
+import { CurrentUser, Public } from '../../common/auth/jwt-auth.guard';
+
+import type { CreateDoctorShareDto } from './dto/share.dto';
+import type { ShareService } from './share.service';
 
 @ApiTags('share')
 @Controller({ path: 'share', version: '1' })
@@ -27,6 +29,7 @@ export class ShareController {
 
   @Post('doctor')
   @ApiBearerAuth()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Generate a time-limited doctor share link' })
   async createDoctorShare(
     @CurrentUser('sub') userId: string,

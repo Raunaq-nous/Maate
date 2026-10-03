@@ -2,6 +2,7 @@
 // Symptoms Controller — Symptom Log & Tracker
 // ============================================
 
+import { TimelineEventType } from '@maate/database';
 import {
   Controller,
   Get,
@@ -11,13 +12,18 @@ import {
   Body,
   Query,
   Param,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Request } from 'express';
+
+import type { AuditService} from '../../common/audit/audit.service';
+import { AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import { PrismaService } from '../../common/database/database.module';
-import { TimelineService } from '../timeline/timeline.service';
-import { CreateSymptomDto, QuerySymptomsDto } from './dto/health.dto';
-import { TimelineEventType } from '@maate/database';
+import type { PrismaService } from '../../common/database/database.module';
+import type { TimelineService } from '../timeline/timeline.service';
+
+import type { CreateSymptomDto, QuerySymptomsDto } from './dto/health.dto';
 
 @ApiTags('symptoms')
 @ApiBearerAuth()
@@ -26,6 +32,7 @@ export class SymptomsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly timelineService: TimelineService,
+    private readonly audit: AuditService,
   ) {}
 
   @Post()
@@ -33,6 +40,7 @@ export class SymptomsController {
   async createSymptom(
     @CurrentUser('sub') userId: string,
     @Body() dto: CreateSymptomDto,
+    @Req() req?: Request,
   ) {
     const startedAt = dto.startedAt ? new Date(dto.startedAt) : new Date();
 
@@ -49,6 +57,14 @@ export class SymptomsController {
         notes: dto.notes,
         startedAt,
       },
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_CREATE,
+      resource: 'SymptomEntry',
+      resourceId: symptom.id,
+      req,
     });
 
     // Auto-record TimelineEvent
@@ -78,6 +94,7 @@ export class SymptomsController {
   async getSymptoms(
     @CurrentUser('sub') userId: string,
     @Query() query: QuerySymptomsDto,
+    @Req() req?: Request,
   ) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 50;
@@ -101,6 +118,13 @@ export class SymptomsController {
       this.prisma.symptomEntry.count({ where }),
     ]);
 
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'SymptomEntry',
+      req,
+    });
+
     return {
       data: symptoms,
       meta: {
@@ -117,6 +141,7 @@ export class SymptomsController {
   async resolveSymptom(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
+    @Req() req?: Request,
   ) {
     const symptom = await this.prisma.symptomEntry.findFirst({
       where: { id, userId },
@@ -126,6 +151,14 @@ export class SymptomsController {
     const resolved = await this.prisma.symptomEntry.update({
       where: { id },
       data: { resolvedAt: new Date() },
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_UPDATE,
+      resource: 'SymptomEntry',
+      resourceId: id,
+      req,
     });
 
     await this.timelineService.recordEvent({
@@ -146,10 +179,22 @@ export class SymptomsController {
   async deleteSymptom(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
+    @Req() req?: Request,
   ) {
     const deleted = await this.prisma.symptomEntry.deleteMany({
       where: { id, userId },
     });
+
+    if (deleted.count > 0) {
+      await this.audit.record({
+        userId,
+        action: AuditAction.PHI_DELETE,
+        resource: 'SymptomEntry',
+        resourceId: id,
+        req,
+      });
+    }
+
     return { success: deleted.count > 0 };
   }
 }

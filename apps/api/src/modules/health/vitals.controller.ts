@@ -2,6 +2,7 @@
 // Vitals Controller — Vital Signs Tracking API
 // ============================================
 
+import { TimelineEventType, Severity } from '@maate/database';
 import {
   Controller,
   Get,
@@ -10,13 +11,18 @@ import {
   Body,
   Query,
   Param,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Request } from 'express';
+
+import type { AuditService} from '../../common/audit/audit.service';
+import { AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import { PrismaService } from '../../common/database/database.module';
-import { TimelineService } from '../timeline/timeline.service';
-import { CreateVitalSignDto, QueryVitalsDto } from './dto/health.dto';
-import { TimelineEventType, Severity } from '@maate/database';
+import type { PrismaService } from '../../common/database/database.module';
+import type { TimelineService } from '../timeline/timeline.service';
+
+import type { CreateVitalSignDto, QueryVitalsDto } from './dto/health.dto';
 
 @ApiTags('vitals')
 @ApiBearerAuth()
@@ -25,6 +31,7 @@ export class VitalsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly timelineService: TimelineService,
+    private readonly audit: AuditService,
   ) {}
 
   @Post()
@@ -32,6 +39,7 @@ export class VitalsController {
   async createVital(
     @CurrentUser('sub') userId: string,
     @Body() dto: CreateVitalSignDto,
+    @Req() req?: Request,
   ) {
     const measuredAt = dto.measuredAt ? new Date(dto.measuredAt) : new Date();
 
@@ -48,6 +56,14 @@ export class VitalsController {
         notes: dto.notes,
         measuredAt,
       },
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_CREATE,
+      resource: 'VitalSign',
+      resourceId: vital.id,
+      req,
     });
 
     // Auto-record TimelineEvent
@@ -86,6 +102,7 @@ export class VitalsController {
   async getVitals(
     @CurrentUser('sub') userId: string,
     @Query() query: QueryVitalsDto,
+    @Req() req?: Request,
   ) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 50;
@@ -109,6 +126,13 @@ export class VitalsController {
       this.prisma.vitalSign.count({ where }),
     ]);
 
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'VitalSign',
+      req,
+    });
+
     return {
       data: vitals,
       meta: {
@@ -122,11 +146,18 @@ export class VitalsController {
 
   @Get('latest')
   @ApiOperation({ summary: 'Get latest reading for each vital type' })
-  async getLatestVitals(@CurrentUser('sub') userId: string) {
+  async getLatestVitals(@CurrentUser('sub') userId: string, @Req() req?: Request) {
     const allTypes = await this.prisma.vitalSign.findMany({
       where: { userId },
       orderBy: { measuredAt: 'desc' },
       distinct: ['type'],
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'VitalSign',
+      req,
     });
 
     return { data: allTypes };
@@ -137,10 +168,21 @@ export class VitalsController {
   async deleteVital(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
+    @Req() req?: Request,
   ) {
     const deleted = await this.prisma.vitalSign.deleteMany({
       where: { id, userId },
     });
+
+    if (deleted.count > 0) {
+      await this.audit.record({
+        userId,
+        action: AuditAction.PHI_DELETE,
+        resource: 'VitalSign',
+        resourceId: id,
+        req,
+      });
+    }
 
     return { success: deleted.count > 0 };
   }

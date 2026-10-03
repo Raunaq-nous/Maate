@@ -2,6 +2,7 @@
 // Doctor Notes Controller — Clinical Encounters
 // ============================================
 
+import { TimelineEventType } from '@maate/database';
 import {
   Controller,
   Get,
@@ -9,13 +10,18 @@ import {
   Delete,
   Body,
   Param,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Request } from 'express';
+
+import type { AuditService} from '../../common/audit/audit.service';
+import { AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import { PrismaService } from '../../common/database/database.module';
-import { TimelineService } from '../timeline/timeline.service';
-import { CreateDoctorNoteDto } from './dto/health.dto';
-import { TimelineEventType } from '@maate/database';
+import type { PrismaService } from '../../common/database/database.module';
+import type { TimelineService } from '../timeline/timeline.service';
+
+import type { CreateDoctorNoteDto } from './dto/health.dto';
 
 @ApiTags('doctor-notes')
 @ApiBearerAuth()
@@ -24,6 +30,7 @@ export class DoctorNotesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly timelineService: TimelineService,
+    private readonly audit: AuditService,
   ) {}
 
   @Post()
@@ -31,6 +38,7 @@ export class DoctorNotesController {
   async createDoctorNote(
     @CurrentUser('sub') userId: string,
     @Body() dto: CreateDoctorNoteDto,
+    @Req() req?: Request,
   ) {
     const patientId = dto.patientId || userId;
 
@@ -49,6 +57,14 @@ export class DoctorNotesController {
         followUpDate: dto.followUpDate ? new Date(dto.followUpDate) : null,
         isConfidential: dto.isConfidential || false,
       },
+    });
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_CREATE,
+      resource: 'DoctorNote',
+      resourceId: note.id,
+      req,
     });
 
     // Auto-record TimelineEvent
@@ -72,7 +88,7 @@ export class DoctorNotesController {
 
   @Get()
   @ApiOperation({ summary: 'List doctor notes for current user' })
-  async getDoctorNotes(@CurrentUser('sub') userId: string) {
+  async getDoctorNotes(@CurrentUser('sub') userId: string, @Req() req?: Request) {
     const notes = await this.prisma.doctorNote.findMany({
       where: {
         patientId: userId,
@@ -86,6 +102,13 @@ export class DoctorNotesController {
       orderBy: { createdAt: 'desc' },
     });
 
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'DoctorNote',
+      req,
+    });
+
     return { data: notes };
   }
 
@@ -94,6 +117,7 @@ export class DoctorNotesController {
   async getDoctorNote(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
+    @Req() req?: Request,
   ) {
     const note = await this.prisma.doctorNote.findFirst({
       where: {
@@ -109,6 +133,15 @@ export class DoctorNotesController {
     });
 
     if (!note) return { success: false, message: 'Note not found' };
+
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'DoctorNote',
+      resourceId: id,
+      req,
+    });
+
     return { data: note };
   }
 
@@ -117,11 +150,22 @@ export class DoctorNotesController {
   async deleteDoctorNote(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
+    @Req() req?: Request,
   ) {
     const deleted = await this.prisma.doctorNote.updateMany({
       where: { id, patientId: userId, deletedAt: null },
       data: { deletedAt: new Date() },
     });
+
+    if (deleted.count > 0) {
+      await this.audit.record({
+        userId,
+        action: AuditAction.PHI_DELETE,
+        resource: 'DoctorNote',
+        resourceId: id,
+        req,
+      });
+    }
 
     return { success: deleted.count > 0 };
   }

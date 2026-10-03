@@ -1,4 +1,6 @@
+import { VitalType, HealthStatus, Severity, ConditionStatus } from '@maate/database';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsNotEmpty,
@@ -8,8 +10,12 @@ import {
   IsArray,
   IsDateString,
   IsBoolean,
+  Min,
+  Max,
+  IsInt,
+  IsIn,
+  IsUUID,
 } from 'class-validator';
-import { VitalType, HealthStatus, Severity, ConditionStatus } from '@maate/database';
 
 // ─── Vital Signs DTOs ──────────────────────
 export class CreateVitalSignDto {
@@ -20,11 +26,15 @@ export class CreateVitalSignDto {
 
   @ApiProperty({ description: 'Primary value (e.g. 120 for Systolic BP, 72 for HR)' })
   @IsNumber()
+  @Min(0)
+  @Max(1000)
   @IsNotEmpty()
   value!: number;
 
   @ApiPropertyOptional({ description: 'Secondary value (e.g. 80 for Diastolic BP)' })
   @IsNumber()
+  @Min(0)
+  @Max(1000)
   @IsOptional()
   valueSecondary?: number;
 
@@ -76,10 +86,17 @@ export class QueryVitalsDto {
   endDate?: string;
 
   @ApiPropertyOptional({ default: 50 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
   @IsOptional()
   limit?: number;
 
   @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   @IsOptional()
   page?: number;
 }
@@ -113,11 +130,13 @@ export class CreateSymptomDto {
 
   @ApiPropertyOptional({ type: [String], description: 'Triggers' })
   @IsArray()
+  @IsString({ each: true })
   @IsOptional()
   triggers?: string[];
 
   @ApiPropertyOptional({ type: [String], description: 'Accompanied symptoms' })
   @IsArray()
+  @IsString({ each: true })
   @IsOptional()
   accompaniedBy?: string[];
 
@@ -149,10 +168,17 @@ export class QuerySymptomsDto {
   endDate?: string;
 
   @ApiPropertyOptional({ default: 50 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
   @IsOptional()
   limit?: number;
 
   @ApiPropertyOptional({ default: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   @IsOptional()
   page?: number;
 }
@@ -233,7 +259,7 @@ export class UpdateConditionDto {
 // ─── Doctor Note DTOs ──────────────────────
 export class CreateDoctorNoteDto {
   @ApiPropertyOptional({ description: 'Patient user ID (defaults to current user)' })
-  @IsString()
+  @IsUUID()
   @IsOptional()
   patientId?: string;
 
@@ -269,11 +295,13 @@ export class CreateDoctorNoteDto {
 
   @ApiPropertyOptional({ type: [String] })
   @IsArray()
+  @IsString({ each: true })
   @IsOptional()
   icdCodes?: string[];
 
   @ApiPropertyOptional({ type: [String] })
   @IsArray()
+  @IsString({ each: true })
   @IsOptional()
   cptCodes?: string[];
 
@@ -301,6 +329,7 @@ export class QueryTrendsDto {
   parameterName?: string;
 
   @ApiPropertyOptional({ enum: ['7D', '1M', '3M', '6M', '1Y'], default: '3M' })
+  @IsIn(['7D', '1M', '3M', '6M', '1Y'])
   @IsOptional()
   period?: '7D' | '1M' | '3M' | '6M' | '1Y';
 }

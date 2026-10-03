@@ -3,18 +3,26 @@
 // Grounded Clinical Conversational API
 // ============================================
 
-import { Controller, Get, Post, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
+
+import type { AuditService} from '../../common/audit/audit.service';
+import { AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import { ChatService } from './chat.service';
-import { SendMessageDto } from './dto/chat.dto';
+
+import type { ChatService } from './chat.service';
+import type { SendMessageDto } from './dto/chat.dto';
 
 @ApiTags('chat')
 @ApiBearerAuth()
 @Controller({ path: 'chat', version: '1' })
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly audit: AuditService,
+  ) {}
 
   @Post('message')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
@@ -22,8 +30,17 @@ export class ChatController {
   async sendMessage(
     @CurrentUser('sub') userId: string,
     @Body() dto: SendMessageDto,
+    @Req() req?: Request,
   ) {
-    return this.chatService.sendMessage(userId, dto);
+    const result = await this.chatService.sendMessage(userId, dto);
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'ChatRAG',
+      resourceId: result.sessionId,
+      req,
+    });
+    return result;
   }
 
   @Get('sessions')
@@ -37,8 +54,17 @@ export class ChatController {
   async getHistory(
     @CurrentUser('sub') userId: string,
     @Param('id') sessionId: string,
+    @Req() req?: Request,
   ) {
-    return this.chatService.getHistory(userId, sessionId);
+    const history = await this.chatService.getHistory(userId, sessionId);
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_VIEW,
+      resource: 'ChatSessionHistory',
+      resourceId: sessionId,
+      req,
+    });
+    return history;
   }
 
   @Delete('sessions/:id')
@@ -46,7 +72,16 @@ export class ChatController {
   async deleteSession(
     @CurrentUser('sub') userId: string,
     @Param('id') sessionId: string,
+    @Req() req?: Request,
   ) {
-    return this.chatService.deleteSession(userId, sessionId);
+    const res = await this.chatService.deleteSession(userId, sessionId);
+    await this.audit.record({
+      userId,
+      action: AuditAction.PHI_DELETE,
+      resource: 'ChatSession',
+      resourceId: sessionId,
+      req,
+    });
+    return res;
   }
 }

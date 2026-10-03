@@ -2,6 +2,7 @@
 // Family Controller — Caregiver & Member APIs
 // ============================================
 
+import { AccessLevel, RelationshipType , Gender } from '@maate/database';
 import {
   Controller,
   Get,
@@ -12,28 +13,45 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import { FamilyService } from './family.service';
-import { AccessLevel, RelationshipType } from '@maate/database';
+import { Throttle } from '@nestjs/throttler';
 import {
   IsEmail,
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsDateString,
 } from 'class-validator';
 import type { Request } from 'express';
 
+import { CurrentUser } from '../../common/auth/jwt-auth.guard';
+
+import type { FamilyService } from './family.service';
+
 class CreateMemberDto {
-  @IsString() @IsNotEmpty() fullName!: string;
-  @IsEnum(RelationshipType) relationship!: RelationshipType;
-  @IsOptional() dateOfBirth?: Date;
-  @IsOptional() gender?: string;
+  @IsString()
+  @IsNotEmpty()
+  fullName!: string;
+
+  @IsEnum(RelationshipType)
+  relationship!: RelationshipType;
+
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsEnum(Gender)
+  gender?: Gender;
 }
 
 class ShareAccessDto {
-  @IsEmail() granteeEmail!: string;
-  @IsEnum(AccessLevel) level!: AccessLevel;
+  @IsEmail()
+  @IsNotEmpty()
+  granteeEmail!: string;
+
+  @IsEnum(AccessLevel)
+  level!: AccessLevel;
 }
 
 @ApiTags('family')
@@ -43,6 +61,7 @@ export class FamilyController {
   constructor(private readonly familyService: FamilyService) {}
 
   @Post('members')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Add a new family member profile' })
   async addMember(
     @CurrentUser('sub') userId: string,
