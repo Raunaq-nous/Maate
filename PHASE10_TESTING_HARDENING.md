@@ -67,6 +67,7 @@ Global `ValidationPipe` in `apps/api/src/main.ts` was verified with `whitelist: 
 | `reminder.controller.ts`| `CreateMedicineReminderDto.timesOfDay` | Array without 24-hour time format verification | Added `@Matches(/^([01]\\d|2[0-3]):([0-5]\\d)$/, { each: true })` |
 | `reminder.controller.ts`| `CreateMedicineReminderDto.daysOfWeek` | Array without weekday index bounds | Added `@IsInt({ each: true }) @Min(1, { each: true }) @Max(7, { each: true })` |
 | `reminder.controller.ts`| `UpsertWaterReminderDto.intervalMinutes`| Unbounded number | Added `@IsInt() @Min(15) @Max(720)` |
+| `share.dto.ts` | `CreateDoctorShareDto.expiresInDays` | Enforces minimum 1 day and maximum 90 days expiration | Verified `@Min(1)` and `@Max(90)`, upgraded type to `@IsInt()` |
 | `user.controller.ts` | `updateProfile` body | Untyped `Record<string, unknown>` bypassing validation | Created `UpdateUserDto` with `@IsDateString()`, `@IsEnum(Gender)`, `@Min(30)`, `@Max(250)` |
 
 ---

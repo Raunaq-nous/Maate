@@ -143,13 +143,21 @@ describe("DTO Input Validation & Constraint Hardening (HIPAA / DPDP)", () => {
     });
 
     it("should reject out-of-range expiresInDays in CreateDoctorShareDto", async () => {
-      const dto = plainToInstance(CreateDoctorShareDto, {
+      const dtoOver = plainToInstance(CreateDoctorShareDto, {
         doctorName: "Dr. Arvind Rao",
         expiresInDays: 365, // Max is 90
       });
-      const errors = await validate(dto);
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors.some((e) => e.property === "expiresInDays")).toBe(true);
+      const errorsOver = await validate(dtoOver);
+      expect(errorsOver.length).toBeGreaterThan(0);
+      expect(errorsOver.some((e) => e.property === "expiresInDays")).toBe(true);
+
+      const dtoUnder = plainToInstance(CreateDoctorShareDto, {
+        doctorName: "Dr. Arvind Rao",
+        expiresInDays: 0, // Min is 1
+      });
+      const errorsUnder = await validate(dtoUnder);
+      expect(errorsUnder.length).toBeGreaterThan(0);
+      expect(errorsUnder.some((e) => e.property === "expiresInDays")).toBe(true);
     });
   });
 });

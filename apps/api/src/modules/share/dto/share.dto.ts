@@ -4,7 +4,7 @@ import {
   IsOptional,
   IsEmail,
   IsArray,
-  IsNumber,
+  IsInt,
   Min,
   Max,
 } from 'class-validator';
@@ -26,7 +26,7 @@ export class CreateDoctorShareDto {
   doctorPhone?: string;
 
   @ApiPropertyOptional({ description: 'Expiration in days (default: 7, max: 90)' })
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Max(90)
   @IsOptional()
