@@ -3,7 +3,15 @@
 // Email/password, OTP, OAuth, biometric, sessions
 // ============================================
 
-import { Injectable, Logger, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 
 import { PrismaService } from '../../common/database/database.module';
 import { OtpService } from './services/otp.service';
@@ -11,6 +19,9 @@ import { TokenService } from './services/token.service';
 import { PasswordService } from './services/password.service';
 import { OAuthService } from './services/oauth.service';
 import { MailService } from '../notification/mail.service';
+import { TotpService } from './services/totp.service';
+import { EnableMfaDto, VerifyMfaDto, DisableMfaDto } from './dto/mfa.dto';
+import { Prisma } from '@maate/database';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +34,8 @@ export class AuthService {
     private readonly passwordService: PasswordService,
     private readonly oauthService: OAuthService,
     private readonly mailService: MailService,
+    private readonly jwtService: JwtService,
+    private readonly totpService: TotpService,
   ) {}
 
   // ─── EMAIL/PASSWORD REGISTER ───────────────
@@ -113,6 +126,26 @@ export class AuthService {
 
     // Reset failed attempts on success
     await this.passwordService.resetFailedAttempts(user.id);
+
+    // Check if MFA is enabled (Step 3: Two-Factor Authentication)
+    if (this.prisma.userMfa) {
+      const userMfa = await this.prisma.userMfa.findUnique({
+        where: { userId: user.id },
+      });
+
+      if (userMfa && userMfa.isEnabled && userMfa.type === 'TOTP') {
+        const mfaToken = await this.jwtService.signAsync(
+          { sub: user.id, email: user.email, scope: 'mfa_challenge' },
+          { expiresIn: '5m' },
+        );
+        await this.logAudit(user.id, 'MFA_CHALLENGE_ISSUED', 'auth', null, meta?.ipAddress, meta?.userAgent);
+        return {
+          mfaRequired: true,
+          mfaToken,
+          mfaType: 'TOTP',
+        };
+      }
+    }
 
     // Update login tracking
     await this.prisma.user.update({
@@ -350,10 +383,184 @@ export class AuthService {
     return { message: 'All sessions revoked' };
   }
 
-  // ─── ACCOUNT DELETION ─────────────────────
+  // ─── MFA (TOTP) MANAGEMENT ────────────────
+  async setupMfa(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const secret = this.totpService.generateSecret();
+    const { raw, hashed } = this.totpService.generateBackupCodes(8);
+    const otpAuthUrl = this.totpService.generateOtpAuthUri(user.email || user.id, secret);
+
+    await this.prisma.userMfa.upsert({
+      where: { userId },
+      create: {
+        userId,
+        type: 'TOTP',
+        secret,
+        backupCodes: hashed,
+        isEnabled: false,
+      },
+      update: {
+        type: 'TOTP',
+        secret,
+        backupCodes: hashed,
+        isEnabled: false,
+      },
+    });
+
+    await this.logAudit(userId, 'MFA_SETUP_INITIATED', 'user_mfa', null);
+    return {
+      secret,
+      otpAuthUrl,
+      backupCodes: raw,
+    };
+  }
+
+  async enableMfa(userId: string, dto: EnableMfaDto) {
+    const userMfa = await this.prisma.userMfa.findUnique({ where: { userId } });
+    if (!userMfa || !userMfa.secret) {
+      throw new BadRequestException('MFA setup has not been initiated. Call /auth/mfa/setup first.');
+    }
+
+    const isValid = this.totpService.verifyTotp(dto.code, userMfa.secret);
+    if (!isValid) {
+      throw new BadRequestException('Invalid verification code. Please check your authenticator app.');
+    }
+
+    await this.prisma.userMfa.update({
+      where: { userId },
+      data: {
+        isEnabled: true,
+        verifiedAt: new Date(),
+      },
+    });
+
+    await this.logAudit(userId, 'MFA_ENABLED', 'user_mfa', userMfa.id);
+    return { message: 'Two-factor authentication successfully enabled' };
+  }
+
+  async verifyMfaLogin(dto: VerifyMfaDto, meta?: { userAgent?: string; ipAddress?: string }) {
+    let payload: any;
+    try {
+      payload = await this.jwtService.verifyAsync(dto.mfaToken);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired MFA token');
+    }
+
+    if (payload.scope !== 'mfa_challenge' || !payload.sub) {
+      throw new UnauthorizedException('Invalid MFA token scope');
+    }
+
+    const userId = payload.sub;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Account not found or disabled');
+    }
+
+    const userMfa = await this.prisma.userMfa.findUnique({ where: { userId } });
+    if (!userMfa || !userMfa.isEnabled || !userMfa.secret) {
+      throw new UnauthorizedException('Two-factor authentication is not active for this account');
+    }
+
+    // Try TOTP code first
+    const isTotpValid = this.totpService.verifyTotp(dto.code, userMfa.secret);
+    if (!isTotpValid) {
+      // Try backup code
+      const backupResult = this.totpService.verifyAndConsumeBackupCode(dto.code, userMfa.backupCodes);
+      if (!backupResult.isValid) {
+        await this.logAudit(userId, 'MFA_VERIFY_FAILED', 'auth', null, meta?.ipAddress, meta?.userAgent);
+        throw new UnauthorizedException('Invalid MFA code or backup code');
+      }
+
+      // Update remaining backup codes
+      await this.prisma.userMfa.update({
+        where: { userId },
+        data: { backupCodes: backupResult.remainingHashedCodes },
+      });
+      await this.logAudit(userId, 'MFA_BACKUP_CODE_USED', 'user_mfa', userMfa.id, meta?.ipAddress, meta?.userAgent);
+    }
+
+    // Update login tracking
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date(), loginCount: { increment: 1 } },
+    });
+
+    const session = await this.prisma.userSession.create({
+      data: {
+        userId: user.id,
+        deviceName: dto.deviceName,
+        deviceOS: dto.deviceOS,
+        userAgent: meta?.userAgent,
+        ipAddress: meta?.ipAddress,
+      },
+    });
+
+    const tokens = await this.tokenService.generateTokenPair(
+      { id: user.id, email: user.email, phone: user.phone, role: user.role },
+      { userAgent: meta?.userAgent, ipAddress: meta?.ipAddress, sessionId: session.id },
+    );
+
+    await this.logAudit(user.id, 'LOGIN_MFA_SUCCESS', 'auth', session.id, meta?.ipAddress, meta?.userAgent);
+    return { user: this.sanitizeUser(user), ...tokens, isNewUser: false };
+  }
+
+  async disableMfa(userId: string, dto: DisableMfaDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.passwordHash) {
+      throw new BadRequestException('User not found');
+    }
+
+    const isPasswordValid = await this.passwordService.verify(dto.password, user.passwordHash);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid password');
+    }
+
+    await this.prisma.userMfa.update({
+      where: { userId },
+      data: { isEnabled: false },
+    });
+
+    await this.logAudit(userId, 'MFA_DISABLED', 'user_mfa', null);
+    return { message: 'Two-factor authentication disabled' };
+  }
+
+  async getMfaStatus(userId: string) {
+    const userMfa = await this.prisma.userMfa.findUnique({ where: { userId } });
+    return {
+      isEnabled: !!userMfa?.isEnabled,
+      type: userMfa?.type || 'NONE',
+      verifiedAt: userMfa?.verifiedAt || null,
+      backupCodesRemaining: userMfa?.backupCodes ? userMfa.backupCodes.length : 0,
+    };
+  }
+
+  // ─── ACCOUNT DELETION (DPDP / HIPAA Soft-Delete & Anonymization) ─────
   async deleteAccount(userId: string) {
-    await this.prisma.user.delete({ where: { id: userId } });
-    this.logger.warn(`Account deleted: ${userId}`);
+    const anonymizedEmail = `deleted-${userId.substring(0, 8)}@maate.internal`;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        fullName: 'Deleted User',
+        email: anonymizedEmail,
+        phone: null,
+        emergencyContact: null,
+        allergiesJson: Prisma.DbNull,
+        avatarUrl: null,
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    });
+
+    await this.prisma.userSession.updateMany({
+      where: { userId, isActive: true },
+      data: { isActive: false },
+    });
+
+    await this.tokenService.revokeAllTokens(userId);
+    await this.logAudit(userId, 'ACCOUNT_ERASURE', 'user', userId);
+    this.logger.warn(`Account soft-deleted and anonymized: ${userId}`);
     return { message: 'Account deleted successfully' };
   }
 

@@ -14,6 +14,7 @@ import {
   RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto,
   RegisterBiometricDto, BiometricLoginDto, RevokeSessionDto,
 } from './dto/auth.dto';
+import { EnableMfaDto, VerifyMfaDto, DisableMfaDto } from './dto/mfa.dto';
 import { Public, CurrentUser } from '../../common/auth/jwt-auth.guard';
 import type { JwtPayload } from './services/token.service';
 
@@ -123,6 +124,58 @@ export class AuthController {
     @Ip() ip: string,
   ) {
     return this.authService.biometricLogin(dto, { userAgent, ipAddress: ip });
+  }
+
+  // ─── Multi-Factor Authentication (TOTP) ───
+
+  @Post('mfa/setup')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Generate TOTP secret and backup recovery codes' })
+  async setupMfa(@CurrentUser('sub') userId: string) {
+    return this.authService.setupMfa(userId);
+  }
+
+  @Post('mfa/enable')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify initial TOTP code and enable MFA' })
+  async enableMfa(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: EnableMfaDto,
+  ) {
+    return this.authService.enableMfa(userId, dto);
+  }
+
+  @Public()
+  @Post('mfa/verify')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Verify MFA code or backup code during login challenge' })
+  async verifyMfa(
+    @Body() dto: VerifyMfaDto,
+    @Headers('user-agent') userAgent: string,
+    @Ip() ip: string,
+  ) {
+    return this.authService.verifyMfaLogin(dto, { userAgent, ipAddress: ip });
+  }
+
+  @Post('mfa/disable')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Disable MFA using account password' })
+  async disableMfa(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: DisableMfaDto,
+  ) {
+    return this.authService.disableMfa(userId, dto);
+  }
+
+  @Get('mfa/status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current MFA status for logged-in user' })
+  async getMfaStatus(@CurrentUser('sub') userId: string) {
+    return this.authService.getMfaStatus(userId);
   }
 
   // ─── Token Management ────────────────────

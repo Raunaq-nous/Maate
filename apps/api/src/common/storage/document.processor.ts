@@ -189,6 +189,29 @@ export class DocumentProcessor {
   private async runAiSummary(data: FileProcessingJob): Promise<void> {
     this.logger.log(`AI summary triggered: doc=${data.documentId}`);
     try {
+      // DPDP Compliance: Check user consent for AI summarization
+      const doc = await this.prisma.document.findUnique({
+        where: { id: data.documentId },
+        select: { userId: true, title: true },
+      });
+      const userId = data.userId || doc?.userId;
+      if (userId && this.prisma.dataConsent) {
+        const consent = await this.prisma.dataConsent.findFirst({
+          where: { userId, purpose: 'AI_SUMMARIZATION' },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (consent && (!consent.isGranted || consent.withdrawnAt)) {
+          this.logger.warn(
+            `AI summary withheld for doc=${data.documentId}: user=${userId} consent is not granted or has been withdrawn for AI_SUMMARIZATION`,
+          );
+          await this.prisma.document.update({
+            where: { id: data.documentId },
+            data: { aiSummaryStatus: 'FAILED' },
+          });
+          return;
+        }
+      }
+
       const ocr = await this.prisma.ocrResult.findUnique({ where: { documentId: data.documentId } });
       if (!ocr || (!ocr.rawText && !ocr.structuredData)) {
         this.logger.error(`OCR result missing or empty for doc=${data.documentId}, cannot generate summary`);

@@ -10,11 +10,13 @@ import { PasswordService } from './services/password.service';
 import { OtpService } from './services/otp.service';
 import { OAuthService } from './services/oauth.service';
 import { MailService } from '../notification/mail.service';
+import { TotpService } from './services/totp.service';
 import { PrismaService } from '../../common/database/database.module';
 
 describe('Auth & Token Management', () => {
   let tokenService: TokenService;
   let authService: AuthService;
+  let totpService: TotpService;
   let prisma: any;
   let jwtService: any;
   let configService: any;
@@ -27,6 +29,11 @@ describe('Auth & Token Management', () => {
       user: {
         findUnique: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
+      },
+      userMfa: {
+        findUnique: jest.fn(),
+        upsert: jest.fn(),
         update: jest.fn(),
       },
       userSession: {
@@ -79,6 +86,7 @@ describe('Auth & Token Management', () => {
       providers: [
         AuthService,
         TokenService,
+        TotpService,
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: configService },
@@ -91,6 +99,7 @@ describe('Auth & Token Management', () => {
 
     tokenService = module.get<TokenService>(TokenService);
     authService = module.get<AuthService>(AuthService);
+    totpService = module.get<TotpService>(TotpService);
   });
 
   describe('TokenService.generateTokenPair', () => {
@@ -250,4 +259,148 @@ describe('Auth & Token Management', () => {
       ).rejects.toThrow(ConflictException);
     });
   });
+
+  describe('Multi-Factor Authentication (MFA / TOTP)', () => {
+    it('should challenge user with mfaRequired when user has enabled TOTP', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-mfa-1',
+        email: 'priya@example.com',
+        isActive: true,
+        passwordHash: 'hashed-pwd',
+      });
+      passwordService.checkLockout = jest.fn().mockResolvedValue(true);
+      passwordService.verify.mockResolvedValue(true);
+      passwordService.resetFailedAttempts = jest.fn().mockResolvedValue(true);
+
+      prisma.userMfa.findUnique.mockResolvedValue({
+        id: 'mfa-1',
+        userId: 'user-mfa-1',
+        isEnabled: true,
+        type: 'TOTP',
+      });
+
+      jwtService.signAsync.mockResolvedValue('mfa-challenge-jwt-token');
+      const tokenSpy = jest.spyOn(tokenService, 'generateTokenPair');
+
+      const result = await authService.loginWithPassword({
+        email: 'priya@example.com',
+        password: 'Password123!',
+      });
+
+      expect(result.mfaRequired).toBe(true);
+      expect(result.mfaToken).toBe('mfa-challenge-jwt-token');
+      expect(result.mfaType).toBe('TOTP');
+      expect(tokenSpy).not.toHaveBeenCalled();
+    });
+
+    it('should setup MFA with fresh secret and backup recovery codes', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-123',
+        email: 'priya@example.com',
+      });
+      prisma.userMfa.upsert.mockResolvedValue({ id: 'mfa-1', userId: 'user-123' });
+
+      const result = await authService.setupMfa('user-123');
+
+      expect(result.secret).toBeDefined();
+      expect(result.otpAuthUrl).toContain('otpauth://totp/');
+      expect(result.backupCodes).toHaveLength(8);
+      expect(prisma.userMfa.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123' },
+          create: expect.objectContaining({
+            userId: 'user-123',
+            type: 'TOTP',
+            isEnabled: false,
+          }),
+        }),
+      );
+    });
+
+    it('should enable MFA when provided valid verification code', async () => {
+      const secret = totpService.generateSecret();
+      const validCode = totpService.generateTotp(secret);
+
+      prisma.userMfa.findUnique.mockResolvedValue({
+        id: 'mfa-1',
+        userId: 'user-123',
+        secret,
+        isEnabled: false,
+      });
+      prisma.userMfa.update.mockResolvedValue({ id: 'mfa-1', isEnabled: true });
+
+      const result = await authService.enableMfa('user-123', { code: validCode });
+
+      expect(prisma.userMfa.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123' },
+          data: expect.objectContaining({
+            isEnabled: true,
+          }),
+        }),
+      );
+      expect(result.message).toContain('Two-factor authentication successfully enabled');
+    });
+
+    it('should complete login verification when correct TOTP code is provided for challenge', async () => {
+      const secret = totpService.generateSecret();
+      const validCode = totpService.generateTotp(secret);
+
+      jwtService.verifyAsync.mockResolvedValue({
+        sub: 'user-123',
+        email: 'priya@example.com',
+        scope: 'mfa_challenge',
+      });
+
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-123',
+        email: 'priya@example.com',
+        role: 'PATIENT',
+        isActive: true,
+      });
+
+      prisma.userMfa.findUnique.mockResolvedValue({
+        id: 'mfa-1',
+        userId: 'user-123',
+        secret,
+        isEnabled: true,
+        backupCodes: [],
+      });
+
+      const result = await authService.verifyMfaLogin({
+        mfaToken: 'valid-challenge-token',
+        code: validCode,
+      });
+
+      expect(result.user.email).toBe('priya@example.com');
+      expect(result.accessToken).toBe('mock-jwt-access-token');
+      expect(prisma.userSession.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('DPDP / HIPAA Account Erasure & Soft Deletion', () => {
+    it('should soft-delete user, anonymize PII, and revoke sessions', async () => {
+      prisma.user.update.mockResolvedValue({ id: 'user-123' });
+      const revokeSpy = jest.spyOn(tokenService, 'revokeAllTokens').mockResolvedValue(true as any);
+
+      const result = await authService.deleteAccount('user-123');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: expect.objectContaining({
+          fullName: 'Deleted User',
+          phone: null,
+          isActive: false,
+          deletedAt: expect.any(Date),
+        }),
+      });
+      expect(prisma.userSession.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-123', isActive: true },
+        data: { isActive: false },
+      });
+      expect(revokeSpy).toHaveBeenCalledWith('user-123');
+      expect(result.message).toBe('Account deleted successfully');
+    });
+  });
 });
+

@@ -3,7 +3,7 @@
 // Re-exports Prisma client and types
 // ============================================
 
-export { PrismaClient } from './generated/client/index.js';
+export { PrismaClient, Prisma } from './generated/client/index.js';
 export type {
   AiSummary,
   AuditLog,
@@ -18,7 +18,6 @@ export type {
   MedicineReminder,
   Notification,
   OcrResult,
-  Prisma,
   ReminderLog,
   User,
   WaterReminder,

@@ -14,6 +14,7 @@ import { OtpService } from './services/otp.service';
 import { TokenService } from './services/token.service';
 import { PasswordService } from './services/password.service';
 import { OAuthService } from './services/oauth.service';
+import { TotpService } from './services/totp.service';
 import { JwtAuthGuard, RolesGuard } from '../../common/auth/jwt-auth.guard';
 
 @Module({
@@ -37,10 +38,11 @@ import { JwtAuthGuard, RolesGuard } from '../../common/auth/jwt-auth.guard';
     TokenService,
     PasswordService,
     OAuthService,
+    TotpService,
     // Global guards — applied to ALL routes
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [JwtModule, TokenService, PasswordService],
+  exports: [JwtModule, TokenService, PasswordService, TotpService],
 })
 export class AuthModule {}

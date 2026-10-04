@@ -17,6 +17,8 @@ import { ReminderModule } from './modules/reminder/reminder.module';
 import { ShareModule } from './modules/share/share.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
 import { UserModule } from './modules/user/user.module';
+import { ConsentModule } from './modules/consent/consent.module';
+import { ComplianceModule } from './modules/compliance/compliance.module';
 import { CommonModule } from './common/common.module';
 import { SecurityModule } from './common/security/security.module';
 
@@ -53,6 +55,8 @@ import { SecurityModule } from './common/security/security.module';
     ChatModule,
     NotificationModule,
     TimelineModule,
+    ConsentModule,
+    ComplianceModule,
   ],
 })
 export class AppModule {}

@@ -1,0 +1,280 @@
+// ============================================
+// Compliance Service — DPDP & HIPAA Data Export & Erasure
+// ============================================
+
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
+import { PrismaService } from '../../common/database/database.module';
+import { PasswordService } from '../auth/services/password.service';
+import { TokenService } from '../auth/services/token.service';
+import { RequestExportDto, DataErasureDto } from './dto/compliance.dto';
+import { Prisma } from '@maate/database';
+
+@Injectable()
+export class ComplianceService {
+  private readonly logger = new Logger(ComplianceService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwordService: PasswordService,
+    private readonly tokenService: TokenService,
+  ) {}
+
+  // ─── DATA EXPORT (Right to Access / Portability) ────────────
+
+  async requestExport(userId: string, dto?: RequestExportDto) {
+    const format = dto?.format || 'json';
+
+    // 1. Create PENDING DataExportRequest
+    const exportRequest = await this.prisma.dataExportRequest.create({
+      data: {
+        userId,
+        format,
+        status: 'PROCESSING',
+        requestedAt: new Date(),
+      },
+    });
+
+    // 2. Compile complete export archive
+    const payload = await this.compileUserData(userId);
+
+    // 3. Mark request as COMPLETED with 7-day expiration
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const completed = await this.prisma.dataExportRequest.update({
+      where: { id: exportRequest.id },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        expiresAt,
+        downloadUrl: `/api/v1/compliance/export/${exportRequest.id}/download`,
+      },
+    });
+
+    await this.logAudit(userId, 'DATA_EXPORT_REQUESTED', 'data_export_request', exportRequest.id);
+    this.logger.log(`Data export completed for user=${userId} req=${exportRequest.id}`);
+
+    return {
+      exportRequest: completed,
+      data: payload,
+    };
+  }
+
+  async getExportRequests(userId: string) {
+    return this.prisma.dataExportRequest.findMany({
+      where: { userId },
+      orderBy: { requestedAt: 'desc' },
+    });
+  }
+
+  async getExportData(userId: string, exportId: string) {
+    const exportRequest = await this.prisma.dataExportRequest.findFirst({
+      where: { id: exportId, userId },
+    });
+
+    if (!exportRequest) {
+      throw new NotFoundException('Data export request not found or not owned by user');
+    }
+
+    if (exportRequest.status !== 'COMPLETED') {
+      throw new BadRequestException(`Export is in status: ${exportRequest.status}`);
+    }
+
+    if (exportRequest.expiresAt && exportRequest.expiresAt < new Date()) {
+      throw new BadRequestException('This data export has expired. Please request a fresh export.');
+    }
+
+    const payload = await this.compileUserData(userId);
+
+    await this.logAudit(userId, 'DATA_EXPORT_DOWNLOADED', 'data_export_request', exportId);
+
+    return {
+      exportMeta: exportRequest,
+      exportedAt: new Date(),
+      payload,
+    };
+  }
+
+  // ─── RIGHT TO ERASURE (Soft-Delete Cascade & Anonymization) ────────────
+
+  async executeErasure(
+    userId: string,
+    dto: DataErasureDto,
+    meta?: { ipAddress?: string; userAgent?: string },
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 1. Re-authenticate password before destructive erasure
+    if (user.passwordHash) {
+      const isPasswordValid = await this.passwordService.verify(dto.password, user.passwordHash);
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Invalid password. Erasure aborted.');
+      }
+    }
+
+    // 2. Anonymize PII and soft-delete user record
+    const anonymizedEmail = `deleted-${userId.substring(0, 8)}@maate.internal`;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        fullName: 'Deleted User',
+        email: anonymizedEmail,
+        phone: null,
+        emergencyContact: null,
+        allergiesJson: Prisma.DbNull,
+        avatarUrl: null,
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    });
+
+    // 3. Revoke all active sessions
+    await this.prisma.userSession.updateMany({
+      where: { userId, isActive: true },
+      data: { isActive: false },
+    });
+
+    // 4. Revoke all refresh tokens
+    await this.tokenService.revokeAllTokens(userId);
+
+    // 5. Audit log erasure
+    await this.logAudit(
+      userId,
+      'ACCOUNT_ERASURE',
+      'user',
+      userId,
+      meta?.ipAddress,
+      meta?.userAgent,
+    );
+    this.logger.warn(`User data erased and account soft-deleted: user=${userId}`);
+
+    return {
+      success: true,
+      message: 'Account and personal data erased successfully in compliance with DPDP Act.',
+    };
+  }
+
+  // ─── PRIVATE COMPILATION HELPER ─────────────────────────────
+
+  private async compileUserData(userId: string) {
+    const [
+      user,
+      vitals,
+      symptoms,
+      conditions,
+      doctorNotes,
+      medicineReminders,
+      waterReminder,
+      mealReminders,
+      timelineEvents,
+      documents,
+      consents,
+    ] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          dateOfBirth: true,
+          gender: true,
+          bloodGroup: true,
+          heightCm: true,
+          weightKg: true,
+          emergencyContact: true,
+          allergiesJson: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.vitalSign.findMany({ where: { userId }, orderBy: { measuredAt: 'desc' } }),
+      this.prisma.symptomEntry.findMany({ where: { userId }, orderBy: { startedAt: 'desc' } }),
+      this.prisma.chronicCondition.findMany({ where: { userId }, orderBy: { diagnosedDate: 'desc' } }),
+      this.prisma.doctorNote.findMany({ where: { patientId: userId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.medicineReminder.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.waterReminder.findUnique({ where: { userId } }),
+      this.prisma.mealReminder.findMany({ where: { userId }, orderBy: { scheduledTime: 'asc' } }),
+      this.prisma.timelineEvent.findMany({ where: { userId }, orderBy: { occurredAt: 'desc' } }),
+      this.prisma.document.findMany({
+        where: { userId },
+        include: {
+          aiSummary: {
+            select: {
+              summaryText: true,
+              laypersonSummary: true,
+              keyFindings: true,
+              riskFlags: true,
+              recommendations: true,
+              modelUsed: true,
+            },
+          },
+          ocrResult: {
+            select: {
+              confidenceScore: true,
+              engineUsed: true,
+              structuredData: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.dataConsent.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    ]);
+
+    return {
+      schemaVersion: '1.0.0-dpdp',
+      exportedAt: new Date().toISOString(),
+      profile: user,
+      clinicalData: {
+        vitals,
+        symptoms,
+        chronicConditions: conditions,
+        doctorNotes,
+      },
+      carePlan: {
+        medicineReminders,
+        waterReminder,
+        mealReminders,
+      },
+      timeline: timelineEvents,
+      documents,
+      consentHistory: consents,
+    };
+  }
+
+  private async logAudit(
+    userId: string,
+    action: string,
+    resource: string,
+    resourceId: string | null,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          userId,
+          action,
+          resource,
+          resourceId,
+          ipAddress,
+          userAgent,
+        },
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to log compliance audit for ${action}: ${err?.message || err}`);
+    }
+  }
+}

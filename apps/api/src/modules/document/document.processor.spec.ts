@@ -285,5 +285,51 @@ describe('DocumentProcessor (BullMQ OCR & AI Summarization Pipeline)', () => {
         body: expect.stringContaining('re-upload'),
       }));
     });
+
+    it('should withhold AI summary when user consent for AI_SUMMARIZATION is withdrawn', async () => {
+      const mockJob: any = {
+        id: 'job-consent-withdrawn',
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+        data: {
+          documentId: 'doc-no-consent',
+          userId: 'user-no-consent',
+          fileKey: 'uploads/report.pdf',
+          fileName: 'report.pdf',
+          contentType: 'application/pdf',
+          documentType: 'LAB_REPORT',
+          pipeline: ['ai_summary'],
+        },
+      };
+
+      prisma.document.findUnique.mockResolvedValue({
+        id: 'doc-no-consent',
+        userId: 'user-no-consent',
+        title: 'Blood Panel',
+      });
+
+      // User has explicitly withdrawn consent
+      prisma.dataConsent = {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'consent-1',
+          userId: 'user-no-consent',
+          purpose: 'AI_SUMMARIZATION',
+          isGranted: false,
+          withdrawnAt: new Date(),
+        }),
+      };
+
+      await processor.handleProcess(mockJob);
+
+      // Verify AI service was NEVER called
+      expect(http.post).not.toHaveBeenCalled();
+
+      // Verify document summary marked FAILED / withheld
+      expect(prisma.document.update).toHaveBeenCalledWith({
+        where: { id: 'doc-no-consent' },
+        data: { aiSummaryStatus: 'FAILED' },
+      });
+    });
   });
 });
+
