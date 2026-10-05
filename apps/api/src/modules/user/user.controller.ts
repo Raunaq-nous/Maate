@@ -3,8 +3,8 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 
 import { CurrentUser, type JwtPayload } from '../../common/auth/jwt-auth.guard';
 
-import type { UpdateUserDto } from './dto/update-user.dto';
-import type { UserService } from './user.service';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { UserService } from './user.service';
 
 @ApiTags('users')
 @ApiBearerAuth()

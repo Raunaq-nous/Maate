@@ -114,6 +114,7 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
           }
           return Promise.resolve(null);
         }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       dataExportRequest: {
         create: jest.fn().mockImplementation(({ data }: any) => {
@@ -138,6 +139,7 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
         findMany: jest.fn().mockImplementation(({ where }: any) => {
           return Promise.resolve(mockExportRequests.filter((r) => r.userId === where.userId));
         }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       userMfa: {
         findUnique: jest.fn().mockImplementation(({ where }: any) => {
@@ -159,11 +161,13 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
           }
           return Promise.resolve(null);
         }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       document: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'doc-1', userId: TEST_USER_ID, title: 'Lipid Panel' }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'doc-1', userId: TEST_USER_ID, title: 'Lipid Panel', fileUrl: 'documents/1d91389c/doc.pdf' }),
         update: jest.fn().mockResolvedValue({ id: 'doc-1' }),
         findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       ocrResult: {
         findUnique: jest.fn().mockResolvedValue({
@@ -172,21 +176,67 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
           rawText: 'Cholesterol 240 mg/dL',
           structuredData: {},
         }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       aiSummary: {
         upsert: jest.fn().mockResolvedValue({ id: 'ai-1' }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       documentChunk: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
-      vitalSign: { findMany: jest.fn().mockResolvedValue([{ id: 'v1', type: 'HEART_RATE', value: 72 }]) },
-      symptomEntry: { findMany: jest.fn().mockResolvedValue([]) },
-      chronicCondition: { findMany: jest.fn().mockResolvedValue([]) },
-      doctorNote: { findMany: jest.fn().mockResolvedValue([]) },
-      medicineReminder: { findMany: jest.fn().mockResolvedValue([]) },
-      waterReminder: { findUnique: jest.fn().mockResolvedValue(null) },
-      mealReminder: { findMany: jest.fn().mockResolvedValue([]) },
-      timelineEvent: { findMany: jest.fn().mockResolvedValue([]) },
+      chatSession: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      chatMessage: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      vitalSign: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'v1', type: 'HEART_RATE', value: 72 }]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      symptomEntry: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      chronicCondition: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      medication: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      doctorNote: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      medicineReminder: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      waterReminder: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      mealReminder: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      notification: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      doctorShare: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      familyMember: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      timelineEvent: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
       $executeRawUnsafe: jest.fn().mockResolvedValue(1),
     };
@@ -402,15 +452,28 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
       expect(challengedLogin.mfaType).toBe('TOTP');
       expect(challengedLogin.accessToken).toBeUndefined();
 
-      // 5. Submit valid TOTP code to complete challenge
-      const loginTotpCode = totpService.generateTotp(setup.secret);
+      // 5. Submit the same code -> rejected by replay protection!
+      await expect(
+        authController.verifyMfa(
+          { mfaToken: challengedLogin.mfaToken!, code: validCode },
+          'Mozilla/5.0',
+          '127.0.0.1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      // Advance time by 35 seconds to next 30-second window
+      const futureTime = Date.now() + 35000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(futureTime);
+      const freshTotpCode = totpService.generateTotp(setup.secret, futureTime);
+
       const mfaVerifyRes: any = await authController.verifyMfa(
-        { mfaToken: challengedLogin.mfaToken!, code: loginTotpCode },
+        { mfaToken: challengedLogin.mfaToken!, code: freshTotpCode },
         'Mozilla/5.0',
         '127.0.0.1',
       );
       expect(mfaVerifyRes.accessToken).toBeDefined();
       expect(mfaVerifyRes.user.email).toBe(TEST_EMAIL);
+      dateSpy.mockRestore();
 
       // 6. Test login using a Backup Recovery Code
       const challengedLogin2: any = await authController.login(

@@ -3,12 +3,14 @@
 // pgvector Semantic Retrieval & Groq Proxy
 // ============================================
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../../common/database/database.module';
 import { SendMessageDto } from './dto/chat.dto';
+import { ConsentService } from '../consent/consent.service';
+import { ConsentPurpose } from '../consent/dto/consent.dto';
 import { randomUUID } from 'crypto';
 
 interface RetrievedChunk {
@@ -30,11 +32,22 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly http: HttpService,
+    @Optional() private readonly consentService?: ConsentService,
   ) {
     this.aiServiceUrl = this.config.get('AI_SERVICE_URL', 'http://localhost:8001');
   }
 
   async sendMessage(userId: string, dto: SendMessageDto) {
+    // 0. DPDP Purpose-Based Consent Check
+    if (this.consentService) {
+      const hasAiConsent = await this.consentService.hasConsent(userId, ConsentPurpose.AI_SUMMARIZATION);
+      if (!hasAiConsent) {
+        throw new ForbiddenException(
+          'AI processing consent is required to use AI Chat. Please grant consent in Settings > Privacy & Data Consent under DPDP Act.',
+        );
+      }
+    }
+
     const sessionId = dto.sessionId || randomUUID();
 
     // 1. Get or Create Session

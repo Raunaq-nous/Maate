@@ -15,6 +15,8 @@ export default function SettingsScreen() {
   const [pushNotif, setPushNotif] = useState(true);
   const [biometric, setBiometric] = useState(false);
   const [dataSync, setDataSync] = useState(true);
+  const [aiConsent, setAiConsent] = useState(true);
+  const [dataConsent, setDataConsent] = useState(true);
 
   const sections = [
     {
@@ -39,6 +41,29 @@ export default function SettingsScreen() {
         { icon: 'finger-print' as const, label: 'Biometric Lock', color: Colors.status.normal, toggle: true, value: biometric, onChange: setBiometric },
         { icon: 'lock-closed' as const, label: 'Change PIN', color: Colors.primary[400] },
         { icon: 'key' as const, label: 'Active Sessions', color: Colors.accent.amber },
+      ],
+    },
+    {
+      title: 'DPDP Privacy & Consent',
+      items: [
+        {
+          icon: 'shield-checkmark' as const,
+          label: 'AI Document Summarization',
+          subtitle: 'Automatic report analysis & health chat',
+          color: Colors.primary[400],
+          toggle: true,
+          value: aiConsent,
+          onChange: setAiConsent,
+        },
+        {
+          icon: 'document-text' as const,
+          label: 'Core Health Data Processing',
+          subtitle: 'Digital timeline & vitals tracking',
+          color: Colors.accent.teal,
+          toggle: true,
+          value: dataConsent,
+          onChange: setDataConsent,
+        },
       ],
     },
     {

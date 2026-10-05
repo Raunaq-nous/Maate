@@ -17,13 +17,12 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import type { Request } from 'express';
 
-import type { AuditService} from '../../common/audit/audit.service';
-import { AuditAction } from '../../common/audit/audit.service';
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
-import type { PrismaService } from '../../common/database/database.module';
-import type { TimelineService } from '../timeline/timeline.service';
+import { PrismaService } from '../../common/database/database.module';
+import { TimelineService } from '../timeline/timeline.service';
 
-import type { CreateConditionDto, UpdateConditionDto } from './dto/health.dto';
+import { CreateConditionDto, UpdateConditionDto } from './dto/health.dto';
 
 @ApiTags('conditions')
 @ApiBearerAuth()

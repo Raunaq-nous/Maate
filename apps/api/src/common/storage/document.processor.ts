@@ -200,14 +200,31 @@ export class DocumentProcessor {
           where: { userId, purpose: 'AI_SUMMARIZATION' },
           orderBy: { createdAt: 'desc' },
         });
-        if (consent && (!consent.isGranted || consent.withdrawnAt)) {
+        const hasConsent = !!(consent && consent.isGranted && !consent.withdrawnAt);
+        if (!hasConsent) {
           this.logger.warn(
-            `AI summary withheld for doc=${data.documentId}: user=${userId} consent is not granted or has been withdrawn for AI_SUMMARIZATION`,
+            `AI summary withheld (WITHHELD_NO_CONSENT) for doc=${data.documentId}: user=${userId} consent is not granted or has been withdrawn for AI_SUMMARIZATION`,
           );
           await this.prisma.document.update({
             where: { id: data.documentId },
             data: { aiSummaryStatus: 'FAILED' },
           });
+
+          // Dispatch notification to user about withheld processing
+          try {
+            await this.notificationService.sendPushNotification(userId, {
+              title: 'AI Processing Withheld',
+              body: `AI summarization for "${doc?.title || data.fileName || 'uploaded document'}" was withheld because consent for AI summarization is not granted (WITHHELD_NO_CONSENT).`,
+              type: 'INFO',
+              data: {
+                event: 'AI_SUMMARY_WITHHELD_NO_CONSENT',
+                documentId: data.documentId,
+                status: 'WITHHELD_NO_CONSENT',
+              },
+            });
+          } catch (notifErr: any) {
+            this.logger.warn(`Failed to send consent withheld notification: ${notifErr?.message || notifErr}`);
+          }
           return;
         }
       }

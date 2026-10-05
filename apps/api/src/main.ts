@@ -24,6 +24,16 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('APP_PORT', 3000);
 
+  // ─── Production Secrets Validation ────────
+  if (configService.get('NODE_ENV') === 'production') {
+    const mfaKey = configService.get<string>('MFA_ENCRYPTION_KEY');
+    if (!mfaKey || mfaKey.trim().length < 32) {
+      throw new Error(
+        'FATAL: MFA_ENCRYPTION_KEY must be configured in production (minimum 256 bits, e.g. openssl rand -base64 32)',
+      );
+    }
+  }
+
   // ─── Logger ──────────────────────────────
   app.useLogger(app.get(Logger));
 

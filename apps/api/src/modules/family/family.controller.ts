@@ -26,7 +26,7 @@ import type { Request } from 'express';
 
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
 
-import type { FamilyService } from './family.service';
+import { FamilyService } from './family.service';
 
 class CreateMemberDto {
   @IsString()

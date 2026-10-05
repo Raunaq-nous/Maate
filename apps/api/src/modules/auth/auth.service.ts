@@ -388,30 +388,33 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const secret = this.totpService.generateSecret();
+    const plainSecret = this.totpService.generateSecret();
+    const encryptedSecret = this.totpService.encryptSecret(plainSecret);
     const { raw, hashed } = this.totpService.generateBackupCodes(8);
-    const otpAuthUrl = this.totpService.generateOtpAuthUri(user.email || user.id, secret);
+    const otpAuthUrl = this.totpService.generateOtpAuthUri(user.email || user.id, plainSecret);
 
     await this.prisma.userMfa.upsert({
       where: { userId },
       create: {
         userId,
         type: 'TOTP',
-        secret,
+        secret: encryptedSecret,
         backupCodes: hashed,
         isEnabled: false,
+        lastUsedStep: null,
       },
       update: {
         type: 'TOTP',
-        secret,
+        secret: encryptedSecret,
         backupCodes: hashed,
         isEnabled: false,
+        lastUsedStep: null,
       },
     });
 
     await this.logAudit(userId, 'MFA_SETUP_INITIATED', 'user_mfa', null);
     return {
-      secret,
+      secret: plainSecret,
       otpAuthUrl,
       backupCodes: raw,
     };
@@ -423,9 +426,14 @@ export class AuthService {
       throw new BadRequestException('MFA setup has not been initiated. Call /auth/mfa/setup first.');
     }
 
-    const isValid = this.totpService.verifyTotp(dto.code, userMfa.secret);
-    if (!isValid) {
+    const plainSecret = this.totpService.decryptSecret(userMfa.secret);
+    const result = this.totpService.verifyTotp(dto.code, plainSecret);
+    if (!result.isValid || result.step === null) {
       throw new BadRequestException('Invalid verification code. Please check your authenticator app.');
+    }
+
+    if (userMfa.lastUsedStep !== null && userMfa.lastUsedStep !== undefined && userMfa.lastUsedStep >= result.step) {
+      throw new BadRequestException('TOTP code has already been used. Please wait for the next time-step.');
     }
 
     await this.prisma.userMfa.update({
@@ -433,6 +441,7 @@ export class AuthService {
       data: {
         isEnabled: true,
         verifiedAt: new Date(),
+        lastUsedStep: result.step,
       },
     });
 
@@ -464,8 +473,20 @@ export class AuthService {
     }
 
     // Try TOTP code first
-    const isTotpValid = this.totpService.verifyTotp(dto.code, userMfa.secret);
-    if (!isTotpValid) {
+    const plainSecret = this.totpService.decryptSecret(userMfa.secret);
+    const totpResult = this.totpService.verifyTotp(dto.code, plainSecret);
+    if (totpResult.isValid && totpResult.step !== null) {
+      // Replay check: reject reuse of the same TOTP within the current time step
+      if (userMfa.lastUsedStep !== null && userMfa.lastUsedStep !== undefined && userMfa.lastUsedStep >= totpResult.step) {
+        await this.logAudit(userId, 'MFA_REPLAY_REJECTED', 'user_mfa', userMfa.id, meta?.ipAddress, meta?.userAgent);
+        throw new BadRequestException('TOTP code has already been used. Please wait for the next 30-second time-step.');
+      }
+
+      await this.prisma.userMfa.update({
+        where: { userId },
+        data: { lastUsedStep: totpResult.step },
+      });
+    } else {
       // Try backup code
       const backupResult = this.totpService.verifyAndConsumeBackupCode(dto.code, userMfa.backupCodes);
       if (!backupResult.isValid) {
@@ -536,8 +557,53 @@ export class AuthService {
     };
   }
 
-  // ─── ACCOUNT DELETION (DPDP / HIPAA Soft-Delete & Anonymization) ─────
+  // ─── ACCOUNT DELETION (DPDP / HIPAA Soft-Delete & Clinical Scrubbing) ─────
   async deleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    // 1. Scrub Documents & related extracts
+    const documents = await this.prisma.document.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const docIds = documents.map((d) => d.id);
+    if (docIds.length > 0) {
+      await this.prisma.documentChunk.deleteMany({ where: { documentId: { in: docIds } } });
+      await this.prisma.ocrResult.deleteMany({ where: { documentId: { in: docIds } } });
+      await this.prisma.aiSummary.deleteMany({ where: { documentId: { in: docIds } } });
+      await this.prisma.document.deleteMany({ where: { id: { in: docIds } } });
+    }
+
+    // 2. Scrub AI Chat sessions & messages
+    const chatSessions = await this.prisma.chatSession.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const chatSessionIds = chatSessions.map((s) => s.id);
+    if (chatSessionIds.length > 0) {
+      await this.prisma.chatMessage.deleteMany({ where: { sessionId: { in: chatSessionIds } } });
+      await this.prisma.chatSession.deleteMany({ where: { id: { in: chatSessionIds } } });
+    }
+
+    // 3. Scrub Clinical Records & Data Consents
+    await this.prisma.timelineEvent.deleteMany({ where: { userId } });
+    await this.prisma.vitalSign.deleteMany({ where: { userId } });
+    await this.prisma.symptomEntry.deleteMany({ where: { userId } });
+    await this.prisma.chronicCondition.deleteMany({ where: { userId } });
+    await this.prisma.medication.deleteMany({ where: { userId } });
+    await this.prisma.doctorNote.deleteMany({ where: { patientId: userId } });
+    await this.prisma.mealReminder.deleteMany({ where: { userId } });
+    await this.prisma.medicineReminder.deleteMany({ where: { userId } });
+    await this.prisma.waterReminder.deleteMany({ where: { userId } });
+    await this.prisma.notification.deleteMany({ where: { userId } });
+    await this.prisma.doctorShare.deleteMany({ where: { userId } });
+    await this.prisma.familyMember.deleteMany({ where: { userId } });
+    await this.prisma.dataConsent.deleteMany({ where: { userId } });
+    await this.prisma.dataExportRequest.deleteMany({ where: { userId } });
+    await this.prisma.userMfa.deleteMany({ where: { userId } });
+
+    // 4. Anonymize user record
     const anonymizedEmail = `deleted-${userId.substring(0, 8)}@maate.internal`;
     await this.prisma.user.update({
       where: { id: userId },
@@ -548,6 +614,8 @@ export class AuthService {
         emergencyContact: null,
         allergiesJson: Prisma.DbNull,
         avatarUrl: null,
+        fcmToken: null,
+        apnsToken: null,
         isActive: false,
         deletedAt: new Date(),
       },
@@ -560,8 +628,8 @@ export class AuthService {
 
     await this.tokenService.revokeAllTokens(userId);
     await this.logAudit(userId, 'ACCOUNT_ERASURE', 'user', userId);
-    this.logger.warn(`Account soft-deleted and anonymized: ${userId}`);
-    return { message: 'Account deleted successfully' };
+    this.logger.warn(`Account soft-deleted, anonymized and clinical PHI erased: ${userId}`);
+    return { message: 'Account deleted and personal clinical data erased successfully' };
   }
 
   // ─── HELPERS ──────────────────────────────

@@ -19,8 +19,8 @@ import type { Request } from 'express';
 
 import { CurrentUser, Public } from '../../common/auth/jwt-auth.guard';
 
-import type { CreateDoctorShareDto } from './dto/share.dto';
-import type { ShareService } from './share.service';
+import { CreateDoctorShareDto } from './dto/share.dto';
+import { ShareService } from './share.service';
 
 @ApiTags('share')
 @Controller({ path: 'share', version: '1' })

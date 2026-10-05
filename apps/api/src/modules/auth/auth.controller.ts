@@ -150,7 +150,7 @@ export class AuthController {
   @Public()
   @Post('mfa/verify')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Verify MFA code or backup code during login challenge' })
   async verifyMfa(
     @Body() dto: VerifyMfaDto,

@@ -10,6 +10,7 @@ import { randomBytes } from 'crypto';
 
 import { PrismaService } from '../../../common/database/database.module';
 import { RevokeReason } from '@maate/database';
+import { createHash } from 'crypto';
 
 export interface JwtPayload {
   sub: string;
@@ -31,6 +32,11 @@ export class TokenService {
     private readonly prisma: PrismaService,
   ) {}
 
+  // ─── Hash Token (SHA-256) ───────────────────
+  public hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
   // ─── Generate access + refresh token pair ─
   async generateTokenPair(
     user: { id: string; email?: string | null; phone?: string | null; role: string },
@@ -48,6 +54,7 @@ export class TokenService {
 
     // Cryptographically secure refresh token
     const refreshToken = randomBytes(48).toString('base64url');
+    const hashedToken = this.hashToken(refreshToken);
     const refreshDays = parseInt(this.config.get('JWT_REFRESH_DAYS', '30'));
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + refreshDays);
@@ -58,7 +65,7 @@ export class TokenService {
     await this.prisma.refreshToken.create({
       data: {
         userId: user.id,
-        token: refreshToken,
+        token: hashedToken,
         family,
         expiresAt,
         userAgent: meta?.userAgent,
@@ -75,10 +82,25 @@ export class TokenService {
 
   // ─── Refresh with rotation + theft detection ─
   async refreshAccessToken(refreshToken: string, meta?: { userAgent?: string; ipAddress?: string }) {
-    const stored = await this.prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+    const hashedToken = this.hashToken(refreshToken);
+    let stored = await this.prisma.refreshToken.findUnique({
+      where: { token: hashedToken },
       include: { user: true },
     });
+
+    // Fallback for legacy unhashed tokens (auto-upgrade if encountered)
+    if (!stored) {
+      stored = await this.prisma.refreshToken.findUnique({
+        where: { token: refreshToken },
+        include: { user: true },
+      });
+      if (stored) {
+        await this.prisma.refreshToken.update({
+          where: { id: stored.id },
+          data: { token: hashedToken },
+        });
+      }
+    }
 
     if (!stored) {
       throw new UnauthorizedException('Invalid refresh token');

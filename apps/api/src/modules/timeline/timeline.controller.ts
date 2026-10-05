@@ -8,11 +8,10 @@ import { Controller, Get, Query, Patch, Param, Body, Req } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import type { Request } from 'express';
 
-import type { AuditService} from '../../common/audit/audit.service';
-import { AuditAction } from '../../common/audit/audit.service';
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
 
-import type { TimelineService, TimelineFilters } from './timeline.service';
+import { TimelineService, type TimelineFilters } from './timeline.service';
 
 @ApiTags('timeline')
 @ApiBearerAuth()

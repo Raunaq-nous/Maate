@@ -4,6 +4,7 @@ import { ComplianceService } from './compliance.service';
 import { PrismaService } from '../../common/database/database.module';
 import { PasswordService } from '../auth/services/password.service';
 import { TokenService } from '../auth/services/token.service';
+import { RevokeReason } from '@maate/database';
 
 describe('ComplianceService (DPDP Right to Access & Erasure)', () => {
   let service: ComplianceService;
@@ -18,21 +19,32 @@ describe('ComplianceService (DPDP Right to Access & Erasure)', () => {
         update: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       user: {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
-      vitalSign: { findMany: jest.fn().mockResolvedValue([]) },
-      symptomEntry: { findMany: jest.fn().mockResolvedValue([]) },
-      chronicCondition: { findMany: jest.fn().mockResolvedValue([]) },
-      doctorNote: { findMany: jest.fn().mockResolvedValue([]) },
-      medicineReminder: { findMany: jest.fn().mockResolvedValue([]) },
-      waterReminder: { findUnique: jest.fn().mockResolvedValue(null) },
-      mealReminder: { findMany: jest.fn().mockResolvedValue([]) },
-      timelineEvent: { findMany: jest.fn().mockResolvedValue([]) },
-      document: { findMany: jest.fn().mockResolvedValue([]) },
-      dataConsent: { findMany: jest.fn().mockResolvedValue([]) },
+      vitalSign: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      symptomEntry: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      chronicCondition: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      doctorNote: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      medicineReminder: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      waterReminder: { findUnique: jest.fn().mockResolvedValue(null), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      mealReminder: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      timelineEvent: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      document: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      documentChunk: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      ocrResult: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      aiSummary: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      chatSession: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      chatMessage: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      medication: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      doctorShare: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      familyMember: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      dataConsent: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      userMfa: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       userSession: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
       auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
     };
@@ -192,6 +204,7 @@ describe('ComplianceService (DPDP Right to Access & Erasure)', () => {
       // Verify tokens revoked
       expect(tokenService.revokeAllTokens).toHaveBeenCalledWith(
         '12345678-aaaa-bbbb-cccc-dddddddddddd',
+        RevokeReason.LOGOUT,
       );
 
       // Verify audit log created

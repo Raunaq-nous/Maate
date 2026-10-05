@@ -8,12 +8,11 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
-import type { AuditService} from '../../common/audit/audit.service';
-import { AuditAction } from '../../common/audit/audit.service';
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser } from '../../common/auth/jwt-auth.guard';
 
-import type { ChatService } from './chat.service';
-import type { SendMessageDto } from './dto/chat.dto';
+import { ChatService } from './chat.service';
+import { SendMessageDto } from './dto/chat.dto';
 
 @ApiTags('chat')
 @ApiBearerAuth()

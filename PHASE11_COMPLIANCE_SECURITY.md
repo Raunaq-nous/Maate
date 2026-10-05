@@ -126,18 +126,18 @@ Key capabilities delivered:
 
 ```text
 Backend API (Jest & ts-jest):
-  PASS src/common/security/compliance-e2e.spec.ts (4 tests)
-  PASS src/modules/document/document.processor.spec.ts (4 tests)
-  PASS src/modules/reminder/reminder.service.spec.ts (4 tests)
-  PASS src/modules/compliance/compliance.service.spec.ts (5 tests)
-  PASS src/modules/auth/auth.service.spec.ts (12 tests)
-  PASS src/common/security/validation.spec.ts (17 tests)
+  PASS src/common/security/compliance-e2e.spec.ts (6 tests)
   PASS src/common/security/cross-user-isolation.spec.ts (10 tests)
+  PASS src/modules/reminder/reminder.service.spec.ts (4 tests)
+  PASS src/modules/document/document.processor.spec.ts (4 tests)
+  PASS src/modules/compliance/compliance.service.spec.ts (6 tests)
+  PASS src/common/security/validation.spec.ts (17 tests)
   PASS src/modules/share/share.service.spec.ts (3 tests)
+  PASS src/modules/auth/auth.service.spec.ts (6 tests)
   PASS src/modules/family/family.service.spec.ts (1 test)
   PASS src/modules/consent/consent.service.spec.ts (5 tests)
-  PASS src/modules/auth/services/totp.service.spec.ts (4 tests)
-  Total: 11 suites, 66 tests passing (100%)
+  PASS src/modules/auth/services/totp.service.spec.ts (14 tests)
+  Total: 11 suites, 76 tests passing (100%)
 
 Frontend Web (Jest):
   PASS src/lib/api.test.ts (6 tests)
@@ -149,12 +149,118 @@ Python Microservices (pytest):
   services/ai-service/tests/test_plausibility_and_emergency.py (5 tests)
   Total: 2 suites, 9 tests passing (100%)
 
-Grand Total: 85 automated tests passing across the entire platform.
+Grand Total: 95 automated tests passing across the entire platform.
 ```
 
 ### 5.2 Build & Code Quality Validation
 
 - **TypeScript Compilation (`tsc --noEmit`)**: 0 errors.
 - **NestJS Production Build (`nest build`)**: Succeeded cleanly.
+- **Next.js Web Production Build (`next build`)**: 17 static & dynamic routes compiled cleanly.
 - **Database Client Build (`tsup src/index.ts --format cjs,esm`)**: Succeeded cleanly (CJS 520 KB, ESM 521 KB).
 - **Code Style (`prettier --check`)**: 100% compliant.
+
+---
+
+## 6. Live Verification Results & Evidence
+
+Live verification was executed against running services (NestJS API on port 3002, Python OCR on port 8002, Python AI on port 8001, MinIO S3 on port 9000, PostgreSQL on port 5432, Redis on port 6379) using `verify_phase11_live.py`.
+
+### 6.1 Consent Gating & Revocation Pipeline (Step 1a)
+1. **Grant `AI_SUMMARIZATION` Consent**:
+   - `POST /api/v1/consents` with `{"purpose": "AI_SUMMARIZATION"}`.
+   - Status: `200 OK`. `isGranted: true`, `withdrawnAt: null`.
+2. **Upload Document 1 (Consent Granted)**:
+   - Uploaded `Lipid Profile With Consent.png`. S3 PUT succeeded.
+   - OCR completed with confidence 0.94. AI summarization completed successfully (`aiSummaryStatus: 'COMPLETED'`).
+3. **Revoke `AI_SUMMARIZATION` Consent**:
+   - `POST /api/v1/consents/revoke` with `{"purpose": "AI_SUMMARIZATION"}`.
+   - Status: `200 OK`. `isGranted: false`, `withdrawnAt: 2026-10-05T17:53:49.899Z`.
+4. **Upload Document 2 (Consent Revoked)**:
+   - Uploaded `Thyroid Panel Withheld.png`.
+   - OCR completed (`ocrStatus: 'COMPLETED'`).
+   - `DocumentProcessor` intercepted pipeline: logged `WITHHELD_NO_CONSENT`, skipped AI summarization, marked `aiSummaryStatus: 'FAILED'`.
+   - User notification dispatched immediately:
+     - **Title**: `AI Processing Withheld`
+     - **Body**: `AI summarization for "Thyroid Panel Withheld" was withheld because consent for AI summarization is not granted (WITHHELD_NO_CONSENT).`
+
+### 6.2 DPDP Data Export Lifecycle & Audit Logging (Step 1b)
+1. **Export Initiation**:
+   - `POST /api/v1/compliance/export` with `{"format": "JSON"}`.
+   - Status: `202 ACCEPTED`. Request ID `bdc49f21-ae2d-48e3-97b6-437309162eee`, status `COMPLETED`.
+2. **Export Download Bundle (`GET /api/v1/compliance/export/:id/download`)**:
+   - Status: `200 OK`.
+   - Domains present in bundle: `['schemaVersion', 'exportedAt', 'profile', 'clinicalData', 'carePlan', 'timeline', 'documents', 'consentHistory']`.
+   - Verified counts: `profile` (demographics), `carePlan` (3 medicine reminders, water reminder, 3 meal reminders), `timeline` (15 events), `documents` (18 documents metadata, OCR, summaries), `consentHistory` (audit trail).
+3. **Regulatory Audit Trail Verification**:
+```text
+         action         |      resource       |         created_at         
+------------------------+---------------------+----------------------------
+ DATA_EXPORT_DOWNLOADED | data_export_request | 2026-10-05 17:53:56.923+00
+ DATA_EXPORT_REQUESTED  | data_export_request | 2026-10-05 17:53:56.754+00
+```
+
+### 6.3 Multi-Factor Authentication Verification (Step 1c)
+1. **Setup & Enable**:
+   - `POST /api/v1/auth/mfa/setup`: Generates 160-bit AES-256-GCM encrypted secret and 8 SHA-256 hashed backup codes.
+   - `POST /api/v1/auth/mfa/enable`: Verified with real TOTP code. Status `200 OK`.
+2. **Login Interception**:
+   - `POST /api/v1/auth/login`: Intercepted with `mfaRequired: true`, `mfaType: 'TOTP'`, temporary signed `mfaToken`.
+3. **Replay Rejection Verification**:
+   - Submitted previously used TOTP code within the same 30s window.
+   - Result: `400 Bad Request` -> `{"message": "TOTP code has already been used. Please wait for the next 30-second time-step.", "statusCode": 400}`.
+4. **Valid Verification**:
+   - Verified challenge with fresh step TOTP code. Status `200 OK`, full JWT access/refresh token pair issued.
+5. **Single-Use Backup Recovery Code**:
+   - Challenged login again. Submitted backup code `B999ED8B`. Status `200 OK`.
+   - Remaining backup codes count decremented to 7 of 8.
+6. **Backup Code Reuse Rejection**:
+   - Attempted second login using the consumed code `B999ED8B`.
+   - Result: `401 Unauthorized` -> `{"message": "Invalid MFA code or backup code", "statusCode": 401}`.
+7. **Disable MFA**:
+   - `POST /api/v1/auth/mfa/disable` with account password. Status `200 OK`.
+
+### 6.4 Right to Erasure Cascade & PHI Scrubbing (Steps 1d & 4)
+Executed on throwaway test user `throwaway-erasure-1791222838@example.com` (`id: 289fe8a7-d959-4bab-a964-129365a069af`):
+1. **Database PHI Scrubbing**:
+   - Before erasure: 1 document, 1 chat session, 1 consent record.
+   - Executed `POST /api/v1/compliance/erasure` with confirmation `"DELETE MY ACCOUNT"` and password re-authentication.
+   - After erasure:
+```text
+ docs | chunks | ocr | summaries | vitals | chats | consents 
+------+--------+-----+-----------+--------+-------+----------
+    0 |      0 |   0 |         0 |      0 |     0 |        0
+```
+2. **User Row Anonymization**:
+```text
+  full_name   |              email              | phone | is_active |         deleted_at         
+--------------+---------------------------------+-------+-----------+----------------------------
+ Deleted User | deleted-289fe8a7@maate.internal |       | f         | 2026-10-05 17:54:03.403+00
+```
+3. **Audit Log Preservation (HIPAA § 164.312(b))**:
+   - All audit logs retained with timestamp for regulatory integrity:
+```text
+     action      |   resource   |         created_at         
+-----------------+--------------+----------------------------
+ ACCOUNT_ERASURE | user         | 2026-10-05 17:54:03.412+00
+ PHI_VIEW        | ChatRAG      | 2026-10-05 17:54:02.417+00
+ PHI_CREATE      | Document     | 2026-10-05 17:53:58.849+00
+ CONSENT_GRANTED | data_consent | 2026-10-05 17:53:58.666+00
+ REGISTER        | user         | 2026-10-05 17:53:58.653+00
+```
+
+---
+
+## 7. Remaining Gaps & Production Recommendations
+
+While Phase 11 achieves full functional compliance across DPDP and HIPAA core requirements within the application codebase, the following production-grade capabilities are noted for Phase 12 (Infrastructure & Production Deployment):
+
+1. **Hardware Security Module (HSM) / AWS KMS for Application Secrets**:
+   - Currently, `MFA_ENCRYPTION_KEY` and `JWT_SECRET` are passed via secure environment variables. In multi-region production, key management should transition to AWS KMS or HashiCorp Vault with automated envelope encryption and annual key rotation.
+2. **S3 Bucket Lifecycle & Object Lock**:
+   - Documents are soft-deleted or removed from MinIO directly. For strict HIPAA audit retention on uploaded clinical assets prior to erasure, AWS S3 Object Lock (WORM - Write Once, Read Many) should be configured on the production medical documents bucket.
+3. **Automated Asynchronous Export File Compilation**:
+   - The current export endpoint compiles JSON synchronously within the request lifecycle. For long-term users with thousands of clinical records and multi-gigabyte imaging files, the export process should transition to BullMQ worker jobs that bundle files into password-protected ZIP archives uploaded to temporary presigned S3 URLs.
+4. **DPDP Data Protection Officer (DPO) Inquiries**:
+   - DPDP Section 8 requires designated channels for data principals to contact the Data Protection Officer. A formal `POST /api/v1/compliance/grievance` endpoint and notification routing to the compliance operations desk should be added before Indian public launch.
+

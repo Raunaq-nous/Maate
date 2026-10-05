@@ -8,12 +8,14 @@ import {
   NotFoundException,
   UnauthorizedException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/database/database.module';
 import { PasswordService } from '../auth/services/password.service';
 import { TokenService } from '../auth/services/token.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { RequestExportDto, DataErasureDto } from './dto/compliance.dto';
-import { Prisma } from '@maate/database';
+import { Prisma, RevokeReason } from '@maate/database';
 
 @Injectable()
 export class ComplianceService {
@@ -23,6 +25,7 @@ export class ComplianceService {
     private readonly prisma: PrismaService,
     private readonly passwordService: PasswordService,
     private readonly tokenService: TokenService,
+    @Optional() private readonly storageService?: StorageService,
   ) {}
 
   // ─── DATA EXPORT (Right to Access / Portability) ────────────
@@ -117,14 +120,69 @@ export class ComplianceService {
     }
 
     // 1. Re-authenticate password before destructive erasure
-    if (user.passwordHash) {
+    if (user.passwordHash && dto.password) {
       const isPasswordValid = await this.passwordService.verify(dto.password, user.passwordHash);
       if (!isPasswordValid) {
         throw new UnauthorizedException('Invalid password. Erasure aborted.');
       }
+    } else if (user.passwordHash && !dto.password) {
+      throw new UnauthorizedException('Password is required to confirm account erasure.');
     }
 
-    // 2. Anonymize PII and soft-delete user record
+    // 2. Comprehensive PHI Scrubbing & Deletion
+    // A. Documents & S3 storage deletion
+    const documents = await this.prisma.document.findMany({
+      where: { userId },
+      select: { id: true, fileUrl: true },
+    });
+
+    for (const doc of documents) {
+      if (this.storageService && doc.fileUrl) {
+        try {
+          await this.storageService.deleteFile(doc.fileUrl);
+        } catch (err: any) {
+          this.logger.warn(`Failed to delete S3 file ${doc.fileUrl}: ${err?.message || err}`);
+        }
+      }
+    }
+
+    const docIds = documents.map((d) => d.id);
+    if (docIds.length > 0) {
+      await this.prisma.documentChunk.deleteMany({ where: { documentId: { in: docIds } } });
+      await this.prisma.ocrResult.deleteMany({ where: { documentId: { in: docIds } } });
+      await this.prisma.aiSummary.deleteMany({ where: { documentId: { in: docIds } } });
+      await this.prisma.document.deleteMany({ where: { id: { in: docIds } } });
+    }
+
+    // B. AI Chat sessions & messages
+    const chatSessions = await this.prisma.chatSession.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const sessionIds = chatSessions.map((s) => s.id);
+    if (sessionIds.length > 0) {
+      await this.prisma.chatMessage.deleteMany({ where: { sessionId: { in: sessionIds } } });
+      await this.prisma.chatSession.deleteMany({ where: { id: { in: sessionIds } } });
+    }
+
+    // C. Clinical PHI & Health Data Records
+    await this.prisma.timelineEvent.deleteMany({ where: { userId } });
+    await this.prisma.vitalSign.deleteMany({ where: { userId } });
+    await this.prisma.symptomEntry.deleteMany({ where: { userId } });
+    await this.prisma.chronicCondition.deleteMany({ where: { userId } });
+    await this.prisma.medication.deleteMany({ where: { userId } });
+    await this.prisma.doctorNote.deleteMany({ where: { patientId: userId } });
+    await this.prisma.mealReminder.deleteMany({ where: { userId } });
+    await this.prisma.medicineReminder.deleteMany({ where: { userId } });
+    await this.prisma.waterReminder.deleteMany({ where: { userId } });
+    await this.prisma.notification.deleteMany({ where: { userId } });
+    await this.prisma.doctorShare.deleteMany({ where: { userId } });
+    await this.prisma.familyMember.deleteMany({ where: { userId } });
+    await this.prisma.dataConsent.deleteMany({ where: { userId } });
+    await this.prisma.dataExportRequest.deleteMany({ where: { userId } });
+    await this.prisma.userMfa.deleteMany({ where: { userId } });
+
+    // 3. Anonymize PII and soft-delete user record
     const anonymizedEmail = `deleted-${userId.substring(0, 8)}@maate.internal`;
     await this.prisma.user.update({
       where: { id: userId },
@@ -135,21 +193,23 @@ export class ComplianceService {
         emergencyContact: null,
         allergiesJson: Prisma.DbNull,
         avatarUrl: null,
+        fcmToken: null,
+        apnsToken: null,
         isActive: false,
         deletedAt: new Date(),
       },
     });
 
-    // 3. Revoke all active sessions
+    // 4. Revoke all active sessions
     await this.prisma.userSession.updateMany({
       where: { userId, isActive: true },
       data: { isActive: false },
     });
 
-    // 4. Revoke all refresh tokens
-    await this.tokenService.revokeAllTokens(userId);
+    // 5. Revoke all refresh tokens
+    await this.tokenService.revokeAllTokens(userId, RevokeReason.LOGOUT);
 
-    // 5. Audit log erasure
+    // 6. Audit log erasure (retained per HIPAA compliance)
     await this.logAudit(
       userId,
       'ACCOUNT_ERASURE',
@@ -162,7 +222,7 @@ export class ComplianceService {
 
     return {
       success: true,
-      message: 'Account and personal data erased successfully in compliance with DPDP Act.',
+      message: 'Account and personal clinical data erased successfully in compliance with DPDP Act.',
     };
   }
 

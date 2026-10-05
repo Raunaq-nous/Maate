@@ -8,12 +8,11 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagg
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
-import type { AuditService} from '../../common/audit/audit.service';
-import { AuditAction } from '../../common/audit/audit.service';
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { CurrentUser, type JwtPayload } from '../../common/auth/jwt-auth.guard';
 
-import type { DocumentService } from './document.service';
-import type { GetUploadUrlDto, ConfirmUploadDto } from './dto/document.dto';
+import { DocumentService } from './document.service';
+import { GetUploadUrlDto, ConfirmUploadDto } from './dto/document.dto';
 
 @ApiTags('documents')
 @ApiBearerAuth()

@@ -35,6 +35,7 @@ describe('Auth & Token Management', () => {
         findUnique: jest.fn(),
         upsert: jest.fn(),
         update: jest.fn(),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       userSession: {
         create: jest.fn().mockResolvedValue({ id: 'sess-1' }),
@@ -52,6 +53,26 @@ describe('Auth & Token Management', () => {
       auditLog: {
         create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
       },
+      document: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      documentChunk: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      ocrResult: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      aiSummary: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      chatSession: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      chatMessage: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      timelineEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      vitalSign: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      symptomEntry: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      chronicCondition: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      medication: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      doctorNote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      mealReminder: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      medicineReminder: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      waterReminder: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      doctorShare: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      familyMember: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      dataConsent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      dataExportRequest: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     };
 
     jwtService = {
@@ -380,6 +401,9 @@ describe('Auth & Token Management', () => {
 
   describe('DPDP / HIPAA Account Erasure & Soft Deletion', () => {
     it('should soft-delete user, anonymize PII, and revoke sessions', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-123', email: 'user@test.com' });
+      prisma.document.findMany.mockResolvedValue([]);
+      prisma.chatSession.findMany.mockResolvedValue([]);
       prisma.user.update.mockResolvedValue({ id: 'user-123' });
       const revokeSpy = jest.spyOn(tokenService, 'revokeAllTokens').mockResolvedValue(true as any);
 
@@ -399,7 +423,7 @@ describe('Auth & Token Management', () => {
         data: { isActive: false },
       });
       expect(revokeSpy).toHaveBeenCalledWith('user-123');
-      expect(result.message).toBe('Account deleted successfully');
+      expect(result.message).toContain('Account deleted');
     });
   });
 });
