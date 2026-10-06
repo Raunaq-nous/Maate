@@ -15,8 +15,8 @@ export default function SettingsScreen() {
   const [pushNotif, setPushNotif] = useState(true);
   const [biometric, setBiometric] = useState(false);
   const [dataSync, setDataSync] = useState(true);
-  const [aiConsent, setAiConsent] = useState(true);
-  const [dataConsent, setDataConsent] = useState(true);
+  const [aiConsent, setAiConsent] = useState(false);
+  const [dataConsent, setDataConsent] = useState(false);
 
   const sections = [
     {

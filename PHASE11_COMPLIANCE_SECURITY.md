@@ -255,10 +255,17 @@ Executed on throwaway test user `throwaway-erasure-1791222838@example.com` (`id:
 
 While Phase 11 achieves full functional compliance across DPDP and HIPAA core requirements within the application codebase, the following production-grade capabilities and realistic compliance boundaries are noted:
 
-1. **Third-Party LLM & Cloud Processing Boundaries (Groq / External AI Providers)**:
-   - When consent is granted, extracted text from medical documents or chat queries is sent to external inference endpoints (e.g., Groq / Meta Llama 3 via HTTPS). 
-   - While in-flight encryption is enforced and zero-data-retention / BAA agreements are standard for enterprise tiers, **data already processed by third-party model providers is outside our direct system database and cannot be retrospectively deleted via our Right to Erasure cascade**. 
-   - Users are explicitly informed of this in the DPDP consent notice, and withholding consent entirely prevents any data transmission to external LLM providers.
+1. **Third-Party LLM & Cloud Processing Boundaries (Groq / Free-Tier Provider)**:
+   - External LLM inference (e.g. Meta Llama 3 / `openai/gpt-oss-120b`) is performed via the **Groq Cloud API using a free-tier developer API key**.
+   - **No Business Associate Agreement (BAA) and no zero-data-retention agreement** are in place with Groq. In accordance with Groq's standard developer terms, prompt and completion payloads are subject to standard provider telemetry, logging, and operational retention policies outside of Maate's database boundaries.
+   - Consequently, while Maate scrubs all local database rows and S3 objects upon an erasure request, **data previously transmitted to Groq cannot be retrospectively deleted via our Right to Erasure cascade**.
+   - To ensure DPDP and HIPAA compliance, Maate enforces strict upstream consent gating. Data is **never** transmitted to Groq without explicit, opt-in consent. The exact consent notices displayed to users across web, mobile, and registration interfaces state:
+     > *"In compliance with the Digital Personal Data Protection (DPDP) Act, AI clinical analysis is paused until you grant explicit consent for AI summarization."* (Reports UI)  
+     > *"Under the DPDP Act, Maate requires your consent to process questions using AI models against your clinical records."* (Chat Interface)  
+     > *"Enable AI Document Summarization for automated lab report insights."* (Registration Form)  
+     > *"Enable AI Conversational Assistant for interactive health queries."* (Registration Form)  
+     > *"Authorizes processing your lab reports and medical records using secure AI models for automatic metric extraction, health summarization, and clinical RAG chat. If revoked, AI processing will halt with WITHHELD_NO_CONSENT."* (Privacy & Consent Settings)  
+     If a user revokes or never grants consent, all external AI calls are completely withheld at the application boundary.
 2. **Hardware Security Module (HSM) / AWS KMS for Application Secrets**:
    - Currently, `MFA_ENCRYPTION_KEY` and `JWT_SECRET` are passed via secure environment variables. In multi-region production, key management should transition to AWS KMS or HashiCorp Vault with automated envelope encryption and annual key rotation.
 3. **S3 Bucket Lifecycle & Object Lock**:

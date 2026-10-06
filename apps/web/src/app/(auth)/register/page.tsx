@@ -29,7 +29,10 @@ export default function RegisterPage() {
       email: "",
       password: "",
       confirmPassword: "",
-      terms: true,
+      terms: false,
+      consentDataProcessing: false as any,
+      consentAiSummarization: false,
+      consentAiChat: false,
     }
   });
 

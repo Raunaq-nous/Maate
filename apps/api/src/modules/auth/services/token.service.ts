@@ -83,24 +83,10 @@ export class TokenService {
   // ─── Refresh with rotation + theft detection ─
   async refreshAccessToken(refreshToken: string, meta?: { userAgent?: string; ipAddress?: string }) {
     const hashedToken = this.hashToken(refreshToken);
-    let stored = await this.prisma.refreshToken.findUnique({
+    const stored = await this.prisma.refreshToken.findUnique({
       where: { token: hashedToken },
       include: { user: true },
     });
-
-    // Fallback for legacy unhashed tokens (auto-upgrade if encountered)
-    if (!stored) {
-      stored = await this.prisma.refreshToken.findUnique({
-        where: { token: refreshToken },
-        include: { user: true },
-      });
-      if (stored) {
-        await this.prisma.refreshToken.update({
-          where: { id: stored.id },
-          data: { token: hashedToken },
-        });
-      }
-    }
 
     if (!stored) {
       throw new UnauthorizedException('Invalid refresh token');

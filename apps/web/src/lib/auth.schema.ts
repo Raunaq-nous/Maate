@@ -28,8 +28,8 @@ export const registerSchema = z.object({
   consentDataProcessing: z.literal(true, {
     message: "Health data processing consent is required",
   }),
-  consentAiSummarization: z.boolean().default(true),
-  consentAiChat: z.boolean().default(true),
+  consentAiSummarization: z.boolean().default(false),
+  consentAiChat: z.boolean().default(false),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
