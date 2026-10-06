@@ -72,7 +72,23 @@ export class AuthService {
       { userAgent: meta?.userAgent, ipAddress: meta?.ipAddress, sessionId: session.id },
     );
 
-    this.logger.log(`New user registered: ${user.id}`);
+    // DPDP Onboarding Consent Seeding
+    const purposesToGrant = (dto as any).consentPurposes || ['DATA_PROCESSING'];
+    for (const purpose of purposesToGrant) {
+      await this.prisma.dataConsent.create({
+        data: {
+          userId: user.id,
+          purpose,
+          isGranted: true,
+          grantedAt: new Date(),
+          ipAddress: meta?.ipAddress,
+          userAgent: meta?.userAgent,
+        },
+      });
+      await this.logAudit(user.id, 'CONSENT_GRANTED', 'data_consent', null, meta?.ipAddress, meta?.userAgent);
+    }
+
+    this.logger.log(`New user registered with ${purposesToGrant.length} consent(s): ${user.id}`);
 
     if (user.email) {
       const otp = await this.otpService.generate(user.email);

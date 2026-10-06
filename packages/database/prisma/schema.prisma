@@ -61,6 +61,7 @@ enum ProcessingStatus {
   COMPLETED
   FAILED
   CANCELLED
+  WITHHELD
 }
 
 enum ReminderFrequency {

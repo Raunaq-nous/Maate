@@ -171,18 +171,41 @@ export class ComplianceService {
     await this.prisma.symptomEntry.deleteMany({ where: { userId } });
     await this.prisma.chronicCondition.deleteMany({ where: { userId } });
     await this.prisma.medication.deleteMany({ where: { userId } });
+    await this.prisma.prescription.deleteMany({ where: { userId } });
     await this.prisma.doctorNote.deleteMany({ where: { patientId: userId } });
     await this.prisma.mealReminder.deleteMany({ where: { userId } });
     await this.prisma.medicineReminder.deleteMany({ where: { userId } });
     await this.prisma.waterReminder.deleteMany({ where: { userId } });
+    await this.prisma.reminderLog.deleteMany({ where: { userId } });
     await this.prisma.notification.deleteMany({ where: { userId } });
     await this.prisma.doctorShare.deleteMany({ where: { userId } });
-    await this.prisma.familyMember.deleteMany({ where: { userId } });
+    await this.prisma.userDevice.deleteMany({ where: { userId } });
     await this.prisma.dataConsent.deleteMany({ where: { userId } });
     await this.prisma.dataExportRequest.deleteMany({ where: { userId } });
     await this.prisma.userMfa.deleteMany({ where: { userId } });
 
-    // 3. Anonymize PII and soft-delete user record
+    // D. Family Members & Associated Shadow Users
+    const familyMembers = await this.prisma.familyMember.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const familyMemberIds = familyMembers.map((fm) => fm.id);
+    if (familyMemberIds.length > 0) {
+      await this.prisma.accessPermission.deleteMany({
+        where: {
+          OR: [
+            { familyMemberId: { in: familyMemberIds } },
+            { userId },
+            { grantedById: userId },
+          ],
+        },
+      });
+      await this.prisma.familyMember.deleteMany({ where: { id: { in: familyMemberIds } } });
+      // Delete shadow user rows created for managed family profiles
+      await this.prisma.user.deleteMany({ where: { id: { in: familyMemberIds } } });
+    }
+
+    // 3. Anonymize PII and soft-delete primary user record
     const anonymizedEmail = `deleted-${userId.substring(0, 8)}@maate.internal`;
     await this.prisma.user.update({
       where: { id: userId },
@@ -200,14 +223,9 @@ export class ComplianceService {
       },
     });
 
-    // 4. Revoke all active sessions
-    await this.prisma.userSession.updateMany({
-      where: { userId, isActive: true },
-      data: { isActive: false },
-    });
-
-    // 5. Revoke all refresh tokens
-    await this.tokenService.revokeAllTokens(userId, RevokeReason.LOGOUT);
+    // 4. Hard-delete user sessions and refresh tokens for total privacy hygiene
+    await this.prisma.userSession.deleteMany({ where: { userId } });
+    await this.prisma.refreshToken.deleteMany({ where: { userId } });
 
     // 6. Audit log erasure (retained per HIPAA compliance)
     await this.logAudit(
@@ -235,11 +253,16 @@ export class ComplianceService {
       symptoms,
       conditions,
       doctorNotes,
+      medications,
+      prescriptions,
       medicineReminders,
       waterReminder,
       mealReminders,
       timelineEvents,
       documents,
+      chatSessions,
+      familyMembers,
+      doctorShares,
       consents,
     ] = await Promise.all([
       this.prisma.user.findUnique({
@@ -263,6 +286,8 @@ export class ComplianceService {
       this.prisma.symptomEntry.findMany({ where: { userId }, orderBy: { startedAt: 'desc' } }),
       this.prisma.chronicCondition.findMany({ where: { userId }, orderBy: { diagnosedDate: 'desc' } }),
       this.prisma.doctorNote.findMany({ where: { patientId: userId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.medication.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.prescription.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
       this.prisma.medicineReminder.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
       this.prisma.waterReminder.findUnique({ where: { userId } }),
       this.prisma.mealReminder.findMany({ where: { userId }, orderBy: { scheduledTime: 'asc' } }),
@@ -290,6 +315,31 @@ export class ComplianceService {
         },
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.chatSession.findMany({
+        where: { userId },
+        include: {
+          messages: {
+            select: {
+              id: true,
+              role: true,
+              content: true,
+              metadata: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.familyMember.findMany({
+        where: { userId },
+        include: { permissions: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.doctorShare.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      }),
       this.prisma.dataConsent.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     ]);
 
@@ -301,6 +351,8 @@ export class ComplianceService {
         vitals,
         symptoms,
         chronicConditions: conditions,
+        medications,
+        prescriptions,
         doctorNotes,
       },
       carePlan: {
@@ -310,6 +362,11 @@ export class ComplianceService {
       },
       timeline: timelineEvents,
       documents,
+      chatHistory: chatSessions,
+      sharingAndFamily: {
+        familyMembers,
+        doctorShares,
+      },
       consentHistory: consents,
     };
   }

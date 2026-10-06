@@ -4,6 +4,7 @@ import { ComplianceService } from './compliance.service';
 import { PrismaService } from '../../common/database/database.module';
 import { PasswordService } from '../auth/services/password.service';
 import { TokenService } from '../auth/services/token.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { RevokeReason } from '@maate/database';
 
 describe('ComplianceService (DPDP Right to Access & Erasure)', () => {
@@ -39,13 +40,18 @@ describe('ComplianceService (DPDP Right to Access & Erasure)', () => {
       aiSummary: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       chatSession: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       chatMessage: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-      medication: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      medication: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      prescription: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-      doctorShare: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-      familyMember: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      doctorShare: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      familyMember: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      accessPermission: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      userDevice: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      reminderLog: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       dataConsent: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       userMfa: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-      userSession: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      userSession: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      refreshToken: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
       auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
     };
 
@@ -63,6 +69,7 @@ describe('ComplianceService (DPDP Right to Access & Erasure)', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: PasswordService, useValue: passwordService },
         { provide: TokenService, useValue: tokenService },
+        { provide: StorageService, useValue: { deleteFile: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 
@@ -195,17 +202,15 @@ describe('ComplianceService (DPDP Right to Access & Erasure)', () => {
         }),
       });
 
-      // Verify sessions revoked
-      expect(prisma.userSession.updateMany).toHaveBeenCalledWith({
-        where: { userId: '12345678-aaaa-bbbb-cccc-dddddddddddd', isActive: true },
-        data: { isActive: false },
+      // Verify sessions hard-deleted for total privacy hygiene
+      expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({
+        where: { userId: '12345678-aaaa-bbbb-cccc-dddddddddddd' },
       });
 
-      // Verify tokens revoked
-      expect(tokenService.revokeAllTokens).toHaveBeenCalledWith(
-        '12345678-aaaa-bbbb-cccc-dddddddddddd',
-        RevokeReason.LOGOUT,
-      );
+      // Verify refresh tokens hard-deleted for total privacy hygiene
+      expect(prisma.refreshToken.deleteMany).toHaveBeenCalledWith({
+        where: { userId: '12345678-aaaa-bbbb-cccc-dddddddddddd' },
+      });
 
       // Verify audit log created
       expect(prisma.auditLog.create).toHaveBeenCalledWith(

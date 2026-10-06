@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum ConsentPurpose {
   AI_SUMMARIZATION = 'AI_SUMMARIZATION',
+  AI_CHAT = 'AI_CHAT',
   DATA_PROCESSING = 'DATA_PROCESSING',
   FAMILY_SHARING = 'FAMILY_SHARING',
   ANALYTICS = 'ANALYTICS',

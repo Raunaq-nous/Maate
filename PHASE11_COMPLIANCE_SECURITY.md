@@ -251,16 +251,20 @@ Executed on throwaway test user `throwaway-erasure-1791222838@example.com` (`id:
 
 ---
 
-## 7. Remaining Gaps & Production Recommendations
+## 7. Remaining Gaps & Honest Production Disclosures
 
-While Phase 11 achieves full functional compliance across DPDP and HIPAA core requirements within the application codebase, the following production-grade capabilities are noted for Phase 12 (Infrastructure & Production Deployment):
+While Phase 11 achieves full functional compliance across DPDP and HIPAA core requirements within the application codebase, the following production-grade capabilities and realistic compliance boundaries are noted:
 
-1. **Hardware Security Module (HSM) / AWS KMS for Application Secrets**:
+1. **Third-Party LLM & Cloud Processing Boundaries (Groq / External AI Providers)**:
+   - When consent is granted, extracted text from medical documents or chat queries is sent to external inference endpoints (e.g., Groq / Meta Llama 3 via HTTPS). 
+   - While in-flight encryption is enforced and zero-data-retention / BAA agreements are standard for enterprise tiers, **data already processed by third-party model providers is outside our direct system database and cannot be retrospectively deleted via our Right to Erasure cascade**. 
+   - Users are explicitly informed of this in the DPDP consent notice, and withholding consent entirely prevents any data transmission to external LLM providers.
+2. **Hardware Security Module (HSM) / AWS KMS for Application Secrets**:
    - Currently, `MFA_ENCRYPTION_KEY` and `JWT_SECRET` are passed via secure environment variables. In multi-region production, key management should transition to AWS KMS or HashiCorp Vault with automated envelope encryption and annual key rotation.
-2. **S3 Bucket Lifecycle & Object Lock**:
+3. **S3 Bucket Lifecycle & Object Lock**:
    - Documents are soft-deleted or removed from MinIO directly. For strict HIPAA audit retention on uploaded clinical assets prior to erasure, AWS S3 Object Lock (WORM - Write Once, Read Many) should be configured on the production medical documents bucket.
-3. **Automated Asynchronous Export File Compilation**:
+4. **Automated Asynchronous Export File Compilation**:
    - The current export endpoint compiles JSON synchronously within the request lifecycle. For long-term users with thousands of clinical records and multi-gigabyte imaging files, the export process should transition to BullMQ worker jobs that bundle files into password-protected ZIP archives uploaded to temporary presigned S3 URLs.
-4. **DPDP Data Protection Officer (DPO) Inquiries**:
+5. **DPDP Data Protection Officer (DPO) Inquiries**:
    - DPDP Section 8 requires designated channels for data principals to contact the Data Protection Officer. A formal `POST /api/v1/compliance/grievance` endpoint and notification routing to the compliance operations desk should be added before Indian public launch.
 

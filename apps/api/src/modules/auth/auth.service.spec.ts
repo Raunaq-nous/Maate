@@ -71,7 +71,7 @@ describe('Auth & Token Management', () => {
       notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       doctorShare: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       familyMember: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-      dataConsent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      dataConsent: { create: jest.fn().mockResolvedValue({ id: 'c-1' }), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       dataExportRequest: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     };
 

@@ -207,7 +207,7 @@ export class DocumentProcessor {
           );
           await this.prisma.document.update({
             where: { id: data.documentId },
-            data: { aiSummaryStatus: 'FAILED' },
+            data: { aiSummaryStatus: 'WITHHELD' },
           });
 
           // Dispatch notification to user about withheld processing

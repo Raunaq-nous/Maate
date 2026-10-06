@@ -89,6 +89,54 @@ export default function RegisterPage() {
           </div>
         </div>
 
+        {/* DPDP Act 2023 Consent Section */}
+        <div className="bg-primary/5 border border-primary/15 p-3.5 rounded-xl space-y-3">
+          <p className="text-[11px] font-bold text-primary uppercase tracking-wider">
+            DPDP Privacy & Data Consent
+          </p>
+
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <input 
+                type="checkbox" 
+                id="consentDataProcessing" 
+                {...register("consentDataProcessing")}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <label htmlFor="consentDataProcessing" className="text-xs text-foreground leading-snug">
+                <span className="font-semibold text-primary">[Required]</span> I consent to processing of my health and clinical records to provide core health services.
+              </label>
+            </div>
+            {errors.consentDataProcessing && (
+              <p className="text-[11px] text-health-critical font-medium ml-6">{errors.consentDataProcessing.message}</p>
+            )}
+
+            <div className="flex items-start gap-2">
+              <input 
+                type="checkbox" 
+                id="consentAiSummarization" 
+                {...register("consentAiSummarization")}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <label htmlFor="consentAiSummarization" className="text-xs text-muted-foreground leading-snug">
+                Enable AI Document Summarization for automated lab report insights.
+              </label>
+            </div>
+
+            <div className="flex items-start gap-2">
+              <input 
+                type="checkbox" 
+                id="consentAiChat" 
+                {...register("consentAiChat")}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <label htmlFor="consentAiChat" className="text-xs text-muted-foreground leading-snug">
+                Enable AI Conversational Assistant for interactive health queries.
+              </label>
+            </div>
+          </div>
+        </div>
+
         <div className="flex items-start gap-2 px-1">
           <input 
             type="checkbox" 

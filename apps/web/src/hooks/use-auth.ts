@@ -46,8 +46,12 @@ export function useAuth() {
   const register = async (data: RegisterInput) => {
     setIsLoading(true);
     try {
-      const { confirmPassword, terms, ...registerPayload } = data;
-      await apiClient.post("/auth/register", registerPayload);
+      const { confirmPassword, terms, consentDataProcessing, consentAiSummarization, consentAiChat, ...registerPayload } = data;
+      const consentPurposes = ["DATA_PROCESSING"];
+      if (consentAiSummarization) consentPurposes.push("AI_SUMMARIZATION");
+      if (consentAiChat) consentPurposes.push("AI_CHAT");
+
+      await apiClient.post("/auth/register", { ...registerPayload, consentPurposes });
       toast({
         title: "Account created",
         description: "Please verify your email to continue.",

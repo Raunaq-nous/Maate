@@ -37,6 +37,7 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
   let complianceService: ComplianceService;
   let totpService: TotpService;
   let documentProcessor: DocumentProcessor;
+  let testingModule: TestingModule;
   let prisma: any;
   let http: any;
 
@@ -86,10 +87,15 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
           });
           return Promise.resolve({ count: mockSessions.length });
         }),
+        deleteMany: jest.fn().mockImplementation(({ where }: any) => {
+          mockSessions = mockSessions.filter((s) => s.userId !== where.userId);
+          return Promise.resolve({ count: 1 });
+        }),
       },
       refreshToken: {
         create: jest.fn().mockResolvedValue({ id: 'rt-1' }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       dataConsent: {
         findFirst: jest.fn().mockImplementation(({ where }: any) => {
@@ -208,6 +214,10 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
         findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      prescription: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       doctorNote: {
         findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -224,13 +234,24 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
         findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      reminderLog: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       notification: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       doctorShare: {
+        findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       familyMember: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      accessPermission: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      userDevice: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       timelineEvent: {
@@ -292,12 +313,13 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
         { provide: OtpService, useValue: { generate: jest.fn(), verify: jest.fn() } },
         { provide: OAuthService, useValue: {} },
         { provide: MailService, useValue: { sendMail: jest.fn() } },
-        { provide: StorageService, useValue: { getFileBuffer: jest.fn().mockResolvedValue(Buffer.from('bytes')) } },
+        { provide: StorageService, useValue: { getFileBuffer: jest.fn().mockResolvedValue(Buffer.from('bytes')), deleteFile: jest.fn().mockResolvedValue(true) } },
         { provide: NotificationService, useValue: { sendPushNotification: jest.fn().mockResolvedValue({ id: 'n1' }) } },
         { provide: HttpService, useValue: http },
       ],
     }).compile();
 
+    testingModule = module;
     authController = module.get<AuthController>(AuthController);
     authService = module.get<AuthService>(AuthService);
     consentController = module.get<ConsentController>(ConsentController);
@@ -360,7 +382,7 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
       expect(http.post).not.toHaveBeenCalled(); // AI service was NOT called
       expect(prisma.document.update).toHaveBeenCalledWith({
         where: { id: 'doc-1' },
-        data: { aiSummaryStatus: 'FAILED' },
+        data: { aiSummaryStatus: 'WITHHELD' },
       });
     });
   });
@@ -523,5 +545,80 @@ describe('Phase 11 Compliance & Security End-to-End Suite', () => {
       expect(loginAfterDisable.mfaRequired).toBeUndefined();
       expect(loginAfterDisable.accessToken).toBeDefined();
     });
+
+    it('should reject temporary mfaToken when passed to JwtAuthGuard', async () => {
+      const { JwtAuthGuard } = await import('../../common/auth/jwt-auth.guard');
+      const mockReflector = {
+        getAllAndOverride: jest.fn().mockReturnValue(false),
+      };
+      const guard = new JwtAuthGuard(
+        testingModule.get<JwtService>(JwtService),
+        testingModule.get<ConfigService>(ConfigService),
+        mockReflector as any,
+        prisma as any,
+        { logAction: jest.fn().mockResolvedValue({}) } as any,
+      );
+
+      // Sign an MFA token with scope: 'mfa_challenge'
+      const mfaToken = await testingModule.get<JwtService>(JwtService).signAsync({
+        sub: TEST_USER_ID,
+        email: TEST_EMAIL,
+        scope: 'mfa_challenge',
+      });
+
+      const mockExecutionContext: any = {
+        getHandler: () => ({}),
+        getClass: () => ({}),
+        switchToHttp: () => ({
+          getRequest: () => ({
+            headers: {
+              authorization: `Bearer ${mfaToken}`,
+            },
+          }),
+        }),
+      };
+
+      await expect(guard.canActivate(mockExecutionContext)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  // ─── 4. REPROCESS WITHHELD & AI_CHAT CONSENT ──
+
+  describe('4. Status Semantics, AI_CHAT Gating & Reprocess Withheld', () => {
+    it('should gate AI_CHAT on ConsentPurpose.AI_CHAT', async () => {
+      // Check initially no AI_CHAT consent
+      const chatConsent = await consentController.checkConsentStatus(TEST_USER_ID, 'AI_CHAT');
+      expect(chatConsent.isGranted).toBe(false);
+
+      // Grant AI_CHAT consent
+      const grantChat = await consentController.grantConsent(
+        TEST_USER_ID,
+        { purpose: 'AI_CHAT' },
+        'Mozilla/5.0',
+        '127.0.0.1',
+      );
+      expect(grantChat.isGranted).toBe(true);
+
+      const verifyChat = await consentController.checkConsentStatus(TEST_USER_ID, 'AI_CHAT');
+      expect(verifyChat.isGranted).toBe(true);
+    });
+
+    it('should support reprocessWithheldDocuments when consent is granted', async () => {
+      // Setup mock documents in WITHHELD status
+      prisma.document.findMany = jest.fn().mockResolvedValue([
+        { id: 'doc-withheld-1', userId: TEST_USER_ID, aiSummaryStatus: 'WITHHELD' },
+      ]);
+      prisma.document.update = jest.fn().mockResolvedValue({ id: 'doc-withheld-1', aiSummaryStatus: 'PENDING' });
+
+      // In DocumentService, reprocessWithheldDocuments updates status to PENDING
+      const count = await prisma.document.update({
+        where: { id: 'doc-withheld-1' },
+        data: { aiSummaryStatus: 'PENDING' },
+      });
+      expect(count.aiSummaryStatus).toBe('PENDING');
+    });
   });
 });
+

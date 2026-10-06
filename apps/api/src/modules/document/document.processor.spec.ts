@@ -324,10 +324,10 @@ describe('DocumentProcessor (BullMQ OCR & AI Summarization Pipeline)', () => {
       // Verify AI service was NEVER called
       expect(http.post).not.toHaveBeenCalled();
 
-      // Verify document summary marked FAILED / withheld
+      // Verify document summary marked WITHHELD
       expect(prisma.document.update).toHaveBeenCalledWith({
         where: { id: 'doc-no-consent' },
-        data: { aiSummaryStatus: 'FAILED' },
+        data: { aiSummaryStatus: 'WITHHELD' },
       });
     });
   });

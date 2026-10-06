@@ -121,6 +121,31 @@ export default function ReportSummaryPage() {
       }))
     : mockMarkers;
 
+  const [grantingConsent, setGrantingConsent] = useState(false);
+
+  const handleGrantConsentAndReprocess = async () => {
+    try {
+      setGrantingConsent(true);
+      await apiClient.post("/consents", { purpose: "AI_SUMMARIZATION" });
+      await apiClient.post("/documents/reprocess-withheld");
+      // Refresh report
+      const [docRes, sumRes] = await Promise.allSettled([
+        apiClient.get(`/documents/${id}`),
+        apiClient.get(`/documents/${id}/summary`),
+      ]);
+      if (docRes.status === "fulfilled" && docRes.value.data?.data) {
+        setDocData(docRes.value.data.data);
+      }
+      if (sumRes.status === "fulfilled" && sumRes.value.data?.data) {
+        setSummaryData(sumRes.value.data.data);
+      }
+    } catch (err) {
+      console.error("Failed to grant consent and reprocess:", err);
+    } finally {
+      setGrantingConsent(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
       {/* ─── Header ───────────────────────────── */}
@@ -142,6 +167,11 @@ export default function ReportSummaryPage() {
               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
                 {docData?.providerName || "Maate Clinical Diagnostics"} • Ref #{id ? id.slice(0, 8) : "92831"}
               </span>
+              {docData?.aiSummaryStatus === "WITHHELD" && (
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 dark:bg-amber-950/50 dark:text-amber-400 px-2 py-0.5 rounded-lg border border-amber-300 dark:border-amber-800">
+                  Needs Consent
+                </span>
+              )}
             </div>
             <h1 className="text-3xl font-bold font-outfit tracking-tight">
               {docData?.title || "Full Health Screen"}
@@ -159,6 +189,28 @@ export default function ReportSummaryPage() {
           </Button>
         </div>
       </div>
+
+      {/* DPDP Consent Withheld Alert */}
+      {docData?.aiSummaryStatus === "WITHHELD" && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-amber-900 dark:text-amber-300">
+              AI Summary Withheld (Consent Required)
+            </h4>
+            <p className="text-xs text-amber-800 dark:text-amber-400/80">
+              In compliance with the Digital Personal Data Protection (DPDP) Act, AI clinical analysis is paused until you grant explicit consent for AI summarization.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleGrantConsentAndReprocess}
+            disabled={grantingConsent}
+            className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs shrink-0"
+          >
+            {grantingConsent ? "Processing..." : "Grant Consent & Summarize"}
+          </Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left: AI Summary & Table */}

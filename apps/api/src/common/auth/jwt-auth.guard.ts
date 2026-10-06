@@ -51,9 +51,14 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
+      const payload = await this.jwtService.verifyAsync<JwtPayload & { scope?: string }>(token, {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
+
+      // MFA challenge tokens are restricted exclusively to /auth/mfa/verify
+      if (payload.scope === 'mfa_challenge' || !payload.role) {
+        throw new UnauthorizedException('Multi-factor authentication required. Challenge token cannot be used as an access token.');
+      }
 
       if (payload.sessionId) {
         const session = await this.prisma.userSession.findUnique({

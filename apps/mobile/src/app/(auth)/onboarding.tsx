@@ -45,6 +45,14 @@ const slides = [
     gradientColors: ['#0EA5E9', '#6366F1'] as [string, string],
     iconBg: 'rgba(14,165,233,0.15)',
   },
+  {
+    id: '4',
+    icon: 'shield-checkmark' as const,
+    title: 'DPDP Privacy\n& Patient Control',
+    subtitle: 'You own your medical data under the DPDP Act. Granularly grant or withdraw consent for AI analysis and sharing at any time in Settings.',
+    gradientColors: ['#10B981', '#0EA5E9'] as [string, string],
+    iconBg: 'rgba(16,185,129,0.15)',
+  },
 ];
 
 export default function OnboardingScreen() {

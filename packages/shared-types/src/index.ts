@@ -166,7 +166,7 @@ export type DocumentTypeEnum =
   | 'CONSENT_FORM'
   | 'OTHER';
 
-export type ProcessingStatusEnum = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type ProcessingStatusEnum = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'WITHHELD';
 
 export interface GetUploadUrlRequest {
   fileName: string;

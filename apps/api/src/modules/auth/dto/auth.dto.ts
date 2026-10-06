@@ -67,6 +67,13 @@ export class RegisterDto {
   @IsOptional()
   @IsPhoneNumber()
   phone?: string;
+
+  @ApiPropertyOptional({
+    description: 'Purposes user consents to during registration',
+    example: ['DATA_PROCESSING', 'AI_SUMMARIZATION', 'AI_CHAT'],
+  })
+  @IsOptional()
+  consentPurposes?: string[];
 }
 
 export class LoginDto {

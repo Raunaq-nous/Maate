@@ -173,6 +173,40 @@ export class DocumentService {
     return { data: doc.aiSummary, status: doc.aiSummaryStatus };
   }
 
+  async reprocessWithheldDocuments(userId: string) {
+    const withheldDocs = await this.prisma.document.findMany({
+      where: {
+        userId,
+        aiSummaryStatus: 'WITHHELD',
+        isArchived: false,
+        deletedAt: null,
+      },
+    });
+
+    for (const doc of withheldDocs) {
+      await this.prisma.document.update({
+        where: { id: doc.id },
+        data: { aiSummaryStatus: 'PENDING' },
+      });
+
+      await this.processing.enqueue({
+        documentId: doc.id,
+        userId: doc.userId,
+        fileKey: doc.fileUrl,
+        contentType: doc.fileType === 'pdf' ? 'application/pdf' : 'image/png',
+        fileName: doc.title || 'document',
+        documentType: doc.documentType,
+        pipeline: ['ai_summary'],
+      });
+    }
+
+    return {
+      message: `Enqueued ${withheldDocs.length} withheld document(s) for AI processing.`,
+      count: withheldDocs.length,
+      documentIds: withheldDocs.map((d) => d.id),
+    };
+  }
+
   async archive(userId: string, id: string) {
     await this.prisma.document.updateMany({
       where: { id, userId },

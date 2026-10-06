@@ -67,6 +67,35 @@ export default function AIChatInterface() {
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const [hasChatConsent, setHasChatConsent] = useState(true);
+  const [grantingConsent, setGrantingConsent] = useState(false);
+
+  useEffect(() => {
+    const checkConsent = async () => {
+      try {
+        const res = await apiClient.get("/consents/status?purpose=AI_CHAT");
+        if (res.data && res.data.isGranted !== undefined) {
+          setHasChatConsent(res.data.isGranted);
+        }
+      } catch (err) {
+        console.error("Failed to check chat consent:", err);
+      }
+    };
+    checkConsent();
+  }, []);
+
+  const handleGrantConsent = async () => {
+    try {
+      setGrantingConsent(true);
+      await apiClient.post("/consents", { purpose: "AI_CHAT" });
+      setHasChatConsent(true);
+    } catch (err) {
+      console.error("Failed to grant chat consent:", err);
+    } finally {
+      setGrantingConsent(false);
+    }
+  };
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -380,24 +409,45 @@ export default function AIChatInterface() {
 
         {/* Input Area */}
         <div className="p-6 pt-0 space-y-4">
-           {messages.length < 3 && (
-             <div className="flex flex-wrap gap-2">
-                {suggestions.map((s) => (
-                   <button 
-                     key={s}
-                     onClick={() => setInput(s)}
-                     className="px-4 py-2 bg-white border border-border/50 rounded-full text-[11px] font-bold text-muted-foreground hover:border-primary hover:text-primary transition-all flex items-center gap-2 group"
-                   >
-                     {s}
-                     <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                   </button>
-                ))}
-             </div>
-           )}
+          {!hasChatConsent && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-amber-900 dark:text-amber-300">
+                  AI Chat Consent Required
+                </h4>
+                <p className="text-xs text-amber-800 dark:text-amber-400/80">
+                  Under the DPDP Act, Maate requires your consent to process questions using AI models against your clinical records.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleGrantConsent}
+                disabled={grantingConsent}
+                className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs shrink-0"
+              >
+                {grantingConsent ? "Enabling..." : "Grant AI Chat Consent"}
+              </Button>
+            </div>
+          )}
 
-           <div className="relative group">
-              <div className="absolute inset-0 bg-primary/5 rounded-[24px] blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
-              <div className="relative flex items-center gap-2 bg-white border rounded-[24px] p-2 pr-3 shadow-sm focus-within:ring-2 ring-primary/20 transition-all">
+          {messages.length < 3 && (
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((s) => (
+                <button 
+                  key={s}
+                  onClick={() => setInput(s)}
+                  className="px-4 py-2 bg-white border border-border/50 rounded-full text-[11px] font-bold text-muted-foreground hover:border-primary hover:text-primary transition-all flex items-center gap-2 group"
+                >
+                  {s}
+                  <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="relative group">
+            <div className="absolute inset-0 bg-primary/5 rounded-[24px] blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
+            <div className="relative flex items-center gap-2 bg-white border rounded-[24px] p-2 pr-3 shadow-sm focus-within:ring-2 ring-primary/20 transition-all">
                  <Button 
                    variant="ghost" 
                    size="icon" 

@@ -112,6 +112,23 @@ export class DocumentController {
     return summary;
   }
 
+  @Post('reprocess-withheld')
+  @ApiOperation({ summary: 'Reprocess all withheld documents after AI consent has been granted' })
+  async reprocessWithheld(
+    @CurrentUser() user: JwtPayload,
+    @Req() req: Request,
+  ) {
+    const result = await this.documentService.reprocessWithheldDocuments(user.sub);
+    await this.audit.record({
+      userId: user.sub,
+      action: AuditAction.PHI_UPDATE,
+      resource: 'DocumentReprocess',
+      resourceId: user.sub,
+      req,
+    });
+    return result;
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Archive document (soft delete)' })
   async archive(@CurrentUser() user: JwtPayload, @Param('id') id: string) {

@@ -40,10 +40,10 @@ export class ChatService {
   async sendMessage(userId: string, dto: SendMessageDto) {
     // 0. DPDP Purpose-Based Consent Check
     if (this.consentService) {
-      const hasAiConsent = await this.consentService.hasConsent(userId, ConsentPurpose.AI_SUMMARIZATION);
-      if (!hasAiConsent) {
+      const hasChatConsent = await this.consentService.hasConsent(userId, ConsentPurpose.AI_CHAT);
+      if (!hasChatConsent) {
         throw new ForbiddenException(
-          'AI processing consent is required to use AI Chat. Please grant consent in Settings > Privacy & Data Consent under DPDP Act.',
+          'AI Chat consent is required to use the conversational assistant. Please grant consent for AI_CHAT in Settings > Privacy & Data Consent under DPDP Act.',
         );
       }
     }
