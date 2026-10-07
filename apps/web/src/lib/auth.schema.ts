@@ -22,14 +22,14 @@ export const registerSchema = z.object({
     .regex(/[0-9]/, "Must contain at least one number")
     .regex(/[^A-Za-z0-9]/, "Must contain at least one special character"),
   confirmPassword: z.string(),
-  terms: z.literal(true, {
+  terms: z.boolean().refine((val) => val === true, {
     message: "You must agree to the Terms of Service",
   }),
-  consentDataProcessing: z.literal(true, {
+  consentDataProcessing: z.boolean().refine((val) => val === true, {
     message: "Health data processing consent is required",
   }),
-  consentAiSummarization: z.boolean().default(false),
-  consentAiChat: z.boolean().default(false),
+  consentAiSummarization: z.boolean(),
+  consentAiChat: z.boolean(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],

@@ -23,14 +23,14 @@ export default function RegisterPage() {
     watch,
     formState: { errors },
   } = useForm<RegisterInput>({
-    resolver: zodResolver(registerSchema) as any,
+    resolver: zodResolver(registerSchema),
     defaultValues: {
       fullName: "",
       email: "",
       password: "",
       confirmPassword: "",
       terms: false,
-      consentDataProcessing: false as any,
+      consentDataProcessing: false,
       consentAiSummarization: false,
       consentAiChat: false,
     }
