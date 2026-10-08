@@ -34,7 +34,6 @@
     "@nestjs/schedule": "^4.1.0",
     "@nestjs/swagger": "^8.0.0",
     "@nestjs/throttler": "^6.5.0",
-    "@supabase/supabase-js": "^2.45.0",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
     "bull": "^4.16.0",

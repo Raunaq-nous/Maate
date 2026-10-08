@@ -1,0 +1,56 @@
+name: Deploy Staging
+
+# Manual trigger only (workflow_dispatch) to avoid accidental deployments.
+# DISABLED BY DEFAULT: Requires explicit confirm_deploy == "DEPLOY" and repository secrets.
+# Follow DEPLOY.md for manual first-time staging deployment.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: 'Type "DEPLOY" to confirm private staging deployment'
+        required: true
+        default: ''
+
+jobs:
+  validate-and-deploy:
+    name: Staging Deployment via SSH
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm_deploy == 'DEPLOY'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Verify Staging Secrets Present
+        run: |
+          if [ -z "${{ secrets.STAGING_HOST }}" ] || [ -z "${{ secrets.STAGING_SSH_KEY }}" ]; then
+            echo "ERROR: STAGING_HOST or STAGING_SSH_KEY repository secrets are missing."
+            exit 1
+          fi
+
+      - name: Configure SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          ssh-keyscan -H "${{ secrets.STAGING_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy to VPS
+        run: |
+          ssh -i ~/.ssh/staging_key ${{ secrets.STAGING_USER || 'root' }}@${{ secrets.STAGING_HOST }} << 'REMOTE_EXEC'
+            set -euo pipefail
+            cd /opt/maate
+            
+            echo "[$(date -u)] Pulling latest code..."
+            git pull origin main
+            
+            echo "[$(date -u)] Building and updating containers..."
+            docker compose -f docker-compose.staging.yml build api ocr-service ai-service
+            docker compose -f docker-compose.staging.yml up -d --remove-orphans
+            
+            echo "[$(date -u)] Running database migrations..."
+            docker compose -f docker-compose.staging.yml exec -T api pnpm prisma:migrate:deploy
+            
+            echo "[$(date -u)] Checking container health..."
+            docker compose -f docker-compose.staging.yml ps
+          REMOTE_EXEC

@@ -1,0 +1,39 @@
+# ==============================================================================
+# Caddy Configuration for MAATE Staging Reverse Proxy
+# Automatic HTTPS via Let's Encrypt / ZeroSSL
+# ==============================================================================
+
+{$STAGING_API_DOMAIN:api.staging.maate.internal} {
+    # Automatic TLS configuration with administrative contact email
+    tls {$TLS_EMAIL:admin@maate.internal}
+
+    # Strict Security Headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+
+    # Reverse proxy to the NestJS API container on port 3000
+    reverse_proxy api:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Health monitoring
+        health_uri /api/v1/health
+        health_interval 15s
+        health_timeout 5s
+    }
+
+    # Access and error logs
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+}

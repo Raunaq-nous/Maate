@@ -14,14 +14,20 @@ import { StorageModule } from './storage/storage.module';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        redis: {
-          host: configService.get('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get('REDIS_PASSWORD') || undefined,
-          db: configService.get<number>('REDIS_DB', 0),
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const redisUrl = configService.get<string>('REDIS_URL');
+        if (redisUrl) {
+          return { redis: redisUrl };
+        }
+        return {
+          redis: {
+            host: configService.get('REDIS_HOST', 'localhost'),
+            port: configService.get<number>('REDIS_PORT', 6379),
+            password: configService.get('REDIS_PASSWORD') || undefined,
+            db: configService.get<number>('REDIS_DB', 0),
+          },
+        };
+      },
     }),
     StorageModule,
   ],

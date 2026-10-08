@@ -24,14 +24,34 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('APP_PORT', 3000);
 
-  // ─── Production Secrets Validation ────────
-  if (configService.get('NODE_ENV') === 'production') {
-    const mfaKey = configService.get<string>('MFA_ENCRYPTION_KEY');
-    if (!mfaKey || mfaKey.trim().length < 32) {
-      throw new Error(
-        'FATAL: MFA_ENCRYPTION_KEY must be configured in production (minimum 256 bits, e.g. openssl rand -base64 32)',
-      );
-    }
+  // ─── Environment & Secrets Validation ────────
+  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  const isDev = nodeEnv === 'development';
+
+  if (!isDev) {
+    const placeholders = [
+      'change-this-to-a-secure-random-secret',
+      'change-this-to-a-secure-random-refresh-secret',
+      'change-this-to-a-secure-random-mfa-secret',
+      'your-super-secret-jwt-key',
+    ];
+
+    const validateSecret = (name: string, val?: string) => {
+      if (!val || val.trim().length < 32) {
+        throw new Error(
+          `FATAL: ${name} must be configured in ${nodeEnv} (minimum 32 bytes / 256 bits, e.g. openssl rand -base64 32)`,
+        );
+      }
+      if (placeholders.some((ph) => val.includes(ph))) {
+        throw new Error(
+          `FATAL: ${name} contains an insecure default placeholder. Set a real cryptographic secret.`,
+        );
+      }
+    };
+
+    validateSecret('JWT_SECRET', configService.get<string>('JWT_SECRET'));
+    validateSecret('JWT_REFRESH_SECRET', configService.get<string>('JWT_REFRESH_SECRET'));
+    validateSecret('MFA_ENCRYPTION_KEY', configService.get<string>('MFA_ENCRYPTION_KEY'));
   }
 
   // ─── Logger ──────────────────────────────
@@ -40,7 +60,13 @@ async function bootstrap() {
   // ─── Security ────────────────────────────
   app.use(helmet());
   const corsOrigins = configService.get<string>('CORS_ORIGINS');
-  const allowedOrigins = corsOrigins ? corsOrigins.split(',') : [];
+  const allowedOrigins = corsOrigins
+    ? corsOrigins
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
+    : [];
+
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin) {
@@ -49,9 +75,7 @@ async function bootstrap() {
       }
       const isAllowed =
         allowedOrigins.includes(origin) ||
-        origin.endsWith('.vercel.app') ||
-        origin === 'http://localhost:3001' ||
-        configService.get('NODE_ENV') !== 'production';
+        (isDev && origin === 'http://localhost:3001');
 
       if (isAllowed) {
         callback(null, true);
@@ -83,7 +107,7 @@ async function bootstrap() {
   );
 
   // ─── Swagger Documentation ───────────────
-  if (configService.get('NODE_ENV') !== 'production') {
+  if (configService.get('ENABLE_DEV_TOOLS') === 'true' && isDev) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Maate API')
       .setDescription('AI-Powered Personal Health Management Platform')

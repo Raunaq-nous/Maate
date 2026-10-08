@@ -97,8 +97,8 @@ export class StorageService {
       Key: fileKey,
       ContentType: contentType,
       ContentLength: fileSizeBytes,
-      // Server-side encryption (when KMS key configured)
-      ...(this.config.get('S3_KMS_KEY_ID')
+      // Server-side encryption (AWS KMS only — omitted on Cloudflare R2 / MinIO)
+      ...(this.config.get('S3_USE_KMS') === 'true' && this.config.get('S3_KMS_KEY_ID')
         ? {
             ServerSideEncryption: 'aws:kms' as const,
             SSEKMSKeyId: this.config.get('S3_KMS_KEY_ID'),

@@ -78,7 +78,7 @@ export class AuthController {
   @Get('dev/last-otp')
   @ApiOperation({ summary: 'Development-only: Get the latest OTP for an email' })
   async getDevLastOtp(@Query('email') email: string) {
-    if (process.env['NODE_ENV'] !== 'development') {
+    if (process.env['ENABLE_DEV_TOOLS'] !== 'true' || process.env['NODE_ENV'] === 'production') {
       throw new NotFoundException('Not found');
     }
     const otp = await this.authService.getDevLastOtp(email);
