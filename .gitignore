@@ -66,3 +66,4 @@ apps/mobile/android/
 # OS / Deployments
 Thumbs.db
 .vercel
+.env*
