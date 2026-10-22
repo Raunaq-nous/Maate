@@ -88,6 +88,7 @@ services:
 
   # ─── OCR Microservice (FastAPI + Tesseract) ──────────────────────────────
   ocr-service:
+    image: ${GHCR_REGISTRY_PREFIX:-ghcr.io/haus-nous/maate}-ocr-service:${IMAGE_TAG:-latest}
     build:
       context: ./services/ocr-service
       dockerfile: Dockerfile
@@ -123,6 +124,7 @@ services:
 
   # ─── AI Microservice (FastAPI + Sentence-Transformers + Groq) ────────────
   ai-service:
+    image: ${GHCR_REGISTRY_PREFIX:-ghcr.io/haus-nous/maate}-ai-service:${IMAGE_TAG:-latest}
     build:
       context: ./services/ai-service
       dockerfile: Dockerfile
@@ -159,6 +161,7 @@ services:
 
   # ─── NestJS Backend API ──────────────────────────────────────────────────
   api:
+    image: ${GHCR_REGISTRY_PREFIX:-ghcr.io/haus-nous/maate}-api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/api/Dockerfile

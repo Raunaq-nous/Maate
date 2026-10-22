@@ -1,0 +1,9 @@
+node_modules
+.next
+dist
+coverage
+.turbo
+.git
+.env*
+!packages/database/prisma/schema.prisma
+!packages/database/prisma/migrations

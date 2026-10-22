@@ -1,9 +1,9 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 
 # Bake BAAI/bge-small-en-v1.5 model into image during build
 ENV HF_HOME=/app/models_cache

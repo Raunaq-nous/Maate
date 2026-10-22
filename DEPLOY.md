@@ -67,13 +67,40 @@ sh get-docker.sh
 ```
 
 ### Step 2.6: Image Building Guidance (Pre-building or Local Build)
+### Step 2.6: Image Building & Registry Strategy (GitHub Packages / GHCR)
 > [!IMPORTANT]
-> Compiling `torch` and sentence-transformers on a 4GB VPS can consume excessive CPU/RAM during Docker builds.  
-> **Recommended**: Build images on your workstation or GitHub Actions (GHCR) and push them, or ensure the 4GB Swap configured in Step 2.4 is active if building directly on the VPS (`docker compose -f docker-compose.staging.yml build`).
+> To save memory and prevent high CPU usage on the 4GB VPS, all microservices (`api`, `ai-service`, `ocr-service`) are automatically built in GitHub Actions on every push to `main` and published to **GitHub Container Registry (GHCR)**:
+> - `ghcr.io/haus-nous/maate-api:latest`
+> - `ghcr.io/haus-nous/maate-ai-service:latest`
+> - `ghcr.io/haus-nous/maate-ocr-service:latest`
+> 
+> On your VPS, `docker-compose.staging.yml` automatically pulls these pre-built images. If GHCR packages are private, log in on the VPS once:
+> ```bash
+> echo "<GITHUB_PAT>" | docker login ghcr.io -u <GITHUB_USERNAME> --password-stdin
+> ```
 
 ---
 
-## 3. DNS Configuration
+## 3. Mandatory Placeholders Checklist (Before First Deploy)
+
+Before launching staging, you must replace the following placeholders across your configuration files:
+
+| Config Location | Placeholder Variable | Description & Required Real Value |
+| :--- | :--- | :--- |
+| **`apps/web/vercel.json`** | `connect-src ... https://api.staging.yourdomain.com` | Replace with your exact public API domain (e.g. `https://api.staging.example.com`). |
+| **Cloudflare R2 Bucket Settings** | `AllowedOrigins` in CORS JSON | Must be your exact Vercel staging URL (e.g. `https://maate-staging.vercel.app` or custom staging domain). **No wildcards allowed (`https://*.vercel.app` is removed)**. |
+| **`Caddyfile`** | `api.staging.yourdomain.com` | Replace with the exact domain pointing to your VPS IP in DNS. |
+| **`Caddyfile`** | `admin@yourdomain.com` | Replace with your email for Let's Encrypt TLS renewal notifications. |
+| **`.env.staging`** | `CORS_ORIGINS` | Set to your exact Vercel web staging origin (e.g. `https://maate-staging.vercel.app`). |
+| **`.env.staging`** | `STAGING_API_DOMAIN` | Set to your API domain (e.g. `api.staging.example.com`). |
+| **`.env.staging`** | `R2_S3_ENDPOINT` | Set to `https://<account_id>.r2.cloudflarestorage.com`. |
+| **`.env.staging`** | `R2_ACCESS_KEY_ID` & `R2_SECRET_ACCESS_KEY` | Set to Cloudflare R2 API Token credentials. |
+| **`.env.staging`** | `GROQ_API_KEY` | Real Groq API key from console.groq.com. |
+| **`apps/web` (Vercel)** | `NEXT_PUBLIC_API_URL` | Set to `https://api.staging.yourdomain.com/api/v1`. |
+
+---
+
+## 4. DNS Configuration
 
 In your DNS provider (Cloudflare, Namecheap, etc.):
 1. Create an **A record**:
@@ -83,7 +110,7 @@ In your DNS provider (Cloudflare, Namecheap, etc.):
 
 ---
 
-## 4. First Staging Deployment
+## 5. First Staging Deployment
 
 1. On your VPS, clone the repository:
    ```bash
@@ -104,8 +131,8 @@ In your DNS provider (Cloudflare, Namecheap, etc.):
    openssl rand -base64 24 # for POSTGRES_PASSWORD
    openssl rand -base64 24 # for REDIS_PASSWORD
    ```
-### Step 4.2: Cloudflare R2 Bucket CORS Configuration
-In the Cloudflare Dashboard, navigate to **R2 > your bucket (`maate-staging-documents`) > Settings > CORS Policy**, and paste this JSON policy to permit browser `PUT` uploads from your Vercel frontend:
+### Step 5.2: Cloudflare R2 Bucket CORS Configuration
+In the Cloudflare Dashboard, navigate to **R2 > your bucket (`maate-staging-documents`) > Settings > CORS Policy**, and paste this JSON policy (permits browser `PUT` uploads exclusively from your Vercel staging domain):
 ```json
 [
   {
@@ -128,12 +155,13 @@ In the Cloudflare Dashboard, navigate to **R2 > your bucket (`maate-staging-docu
 ]
 ```
 
-### Step 4.3: Start Staging Stack & Run Migrations
+### Step 5.3: Start Staging Stack & Run Migrations
 ```bash
-# 1. Start containers
-docker compose -f docker-compose.staging.yml up -d --build
+# 1. Pull pre-built images from GHCR and start containers
+docker compose -f docker-compose.staging.yml pull
+docker compose -f docker-compose.staging.yml up -d
 
-# 2. Run migrations against the empty database (creates vector extension and tables)
+# 2. Run migrations against the empty database (creates vector extension, schema, and tables)
 docker compose -f docker-compose.staging.yml exec api pnpm prisma:migrate:deploy
 
 # NOTE: Do NOT run db:seed in staging. Staging starts with an empty database.
