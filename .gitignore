@@ -67,3 +67,4 @@ apps/mobile/android/
 Thumbs.db
 .vercel
 .env*
+graphify-out/
